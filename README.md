@@ -129,7 +129,7 @@ This preflight performs read-only discovery and SELECT checks; it does not send 
 
 The earlier six-call allowance was consumed. Those responses reported zero estimated cost and 890 output tokens in total; the runtime figures are not an invoice. The receipts do not establish the number or route of every internal model call, including any cross-check or tool loop.
 
-The browser's hosted path requires an explicitly configured NVIDIA Nemotron route and inference opt-in. It retains per-call receipts and checks each returned route and cost estimate. The selected route and its winning-route receipt do not establish which auxiliary models Nightshift may use; those depend on Nightshift's own configuration. Runtime cost estimates cannot guarantee free-credit-only billing. See [live verification](docs/LIVE_VERIFICATION.md) for the evidence and limitations. An NVIDIA key belongs in Nightshift, not this app.
+The browser's hosted path requires an explicitly configured NVIDIA Nemotron route and inference opt-in. It retains per-call receipts and checks each returned route and cost estimate. The selected route and its winning-route receipt do not establish which auxiliary models Nightshift may use; those depend on Nightshift's own configuration. Runtime cost estimates cannot guarantee free-credit-only billing. See [live verification](docs/LIVE_VERIFICATION.md) for the evidence and limitations. An NVIDIA key belongs in Nightshift, not this app. `METERLESS_BASE_URL`, `METERLESS_RUNTIME_TOKEN`, and `METERLESS_MODEL` are supported aliases; `NIGHTSHIFT_ALLOW_INFERENCE=1` is only appropriate after provider usage is authorized.
 
 ## Verification
 
@@ -144,7 +144,7 @@ Tests cover offline restore, units/nulls, query boundaries, missing telemetry, h
 
 The completed live receipt is `artifacts/private/live-flow-20261025-nvidia-01/receipt.json`. History `IC-001` (`3c24d86ae0a5`) produced 14 remote queries and 21 evidence records; target `IC-003` (`99f570d82daa`) produced 16 remote queries and 33 evidence records. All citations resolved. One same-service historical match caused target queries `Q03` and `Q09`; memory membership stayed at two records. See [the live verification record and limits](docs/LIVE_VERIFICATION.md). Private receipts retain real data and provider outputs; they are not committed demo assets.
 
-The label-blind real-data memory check runs cold/history/warm investigations and preserves passing or failed receipts under ignored `artifacts/private/`. Reports are under `artifacts/runs/`; agent/query JSONL traces are under `logs/`. Example outputs never act as canned API responses.
+After importing the larger local dataset, `python3.12 -m scripts.verify_memory_flow` runs the label-blind real-data memory check. It runs cold/history/warm investigations and preserves passing or failed receipts under ignored `artifacts/private/`. Reports are under `artifacts/runs/`; agent/query JSONL traces are under `logs/`. Example outputs never act as canned API responses.
 
 Docker packaging is provided, but **has not been built or run here** because the Docker daemon is unavailable:
 
