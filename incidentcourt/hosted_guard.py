@@ -1,14 +1,14 @@
-"""A durable single-run allowance for hosted browser investigations.
+"""Pinned hosted response checks and receipts for browser investigations.
 
-The budget records gateway requests before dispatch and checks each real receipt
-before permitting another. A zero cost reported after a request cannot prevent
-that request from being billed, or prove an account's billing status. The caller
-must establish the approved free-credit-only route independently before use.
+The client records gateway requests and checks each real receipt before permitting
+another. A winning route describes the returned answer, not auxiliary model calls.
+A zero cost reported after a request cannot prevent that request from being billed,
+or prove an account's billing status. The caller must establish the approved
+free-credit-only route independently before use.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -17,52 +17,22 @@ import uuid
 
 from .integrations import IntegrationError, PROJECT_ROOT
 
-MAX_GATEWAY_CALLS = 3
-UPSTREAM_ATTEMPTS_PER_CALL = 3
-MAX_UPSTREAM_ATTEMPTS = 9
-MAX_OUTPUT_TOKENS = 600
-_NONCE = re.compile(r"^[a-f0-9]{32}$")
-_INCIDENT = re.compile(r"^IC-\d{3}$")
-
-
 @dataclass(frozen=True)
 class HostedRunPolicy:
-    """Explicit local authorization for one incident on one pinned route."""
+    """Hosted NVIDIA route selected for an investigation."""
 
-    nonce: str
-    incident_id: str
     approved_route: str
-
-    @property
-    def nonce_hash(self):
-        return hashlib.sha256(self.nonce.encode('ascii')).hexdigest()
 
     @classmethod
     def from_env(cls, client):
-        nonce = os.environ.get('INCIDENTCOURT_HOSTED_RUN_NONCE', '')
-        incident_id = os.environ.get('INCIDENTCOURT_HOSTED_RUN_INCIDENT', '')
-        approved_route = os.environ.get('INCIDENTCOURT_APPROVED_HOSTED_ROUTE', '')
-        if not (_NONCE.fullmatch(nonce) and _INCIDENT.fullmatch(incident_id)
-                and approved_route.startswith('nvidia/nemotron-')
-                and client.configured and client.allow_inference and client.hosted_only is True
-                and client.model == approved_route):
-            raise IntegrationError('A one-run hosted NVIDIA authorization is required; inference remains paused.')
-        if approved_route.startswith(('nvidia/nemotron-3-', 'nvidia/nemotron-3.')) and client.enable_thinking is not False:
-            raise IntegrationError('The approved NVIDIA Nemotron route requires thinking disabled.')
-        assert_bounded_execution(client)
-        return cls(nonce, incident_id, approved_route)
+        if not (isinstance(client.model, str) and client.model.startswith('nvidia/nemotron-')
+                and client.configured and client.allow_inference and client.hosted_only is True):
+            raise IntegrationError('A configured hosted NVIDIA Nemotron route is required; inference remains paused.')
+        return cls(client.model)
 
 
-def assert_bounded_execution(client):
-    """Require an enforceable per-request control, not a user-set assertion."""
-    check = getattr(client, 'assert_bounded_execution', None)
-    if not callable(check):
-        raise IntegrationError('Nightshift cannot enforce the requested upstream-attempt bound for this browser run.')
-    check()
-
-
-class BudgetedNightshiftClient:
-    """Pass through to Nightshift and verify each bounded runtime response."""
+class HostedNightshiftClient:
+    """Pass through to Nightshift and verify each runtime response."""
 
     def __init__(self, client, policy, run_id, output_root=None):
         if not re.fullmatch(r'[a-f0-9]{20}', str(run_id)):
@@ -76,12 +46,10 @@ class BudgetedNightshiftClient:
         self.output = base / run_id
         self.output.mkdir(mode=0o700, exist_ok=False)
         self.client.receipt_directory = self.output / 'provider-calls'
-        self.journal = {'format': 1, 'scope': 'one browser investigation', 'run_id': run_id,
-                        'incident_id': policy.incident_id, 'approved_route': policy.approved_route,
-                        'gateway_generation_attempts': 0, 'max_gateway_calls': MAX_GATEWAY_CALLS,
-                        'conservative_upstream_attempt_bound': 0,
-                        'max_upstream_attempts': MAX_UPSTREAM_ATTEMPTS,
-                        'actual_upstream_attempts': None, 'max_output_tokens': MAX_OUTPUT_TOKENS,
+        self.journal = {'format': 2, 'scope': 'browser investigation', 'run_id': run_id,
+                        'approved_route': policy.approved_route,
+                        'gateway_generation_attempts': 0,
+                        'actual_upstream_attempts': None,
                         'provider_dispatch_stopped': False, 'calls': []}
         self._flush()
 
@@ -139,8 +107,6 @@ class BudgetedNightshiftClient:
                 and isinstance(receipt.get('decision_id'), str) and bool(receipt['decision_id'])
                 and receipt['receipt_id'] not in self.receipt_ids
                 and receipt['decision_id'] not in self.decision_ids)
-            if self.policy.approved_route.startswith(('nvidia/nemotron-3-', 'nvidia/nemotron-3.')):
-                valid = valid and request.get('chat_template_kwargs', {}).get('enable_thinking') is False
             if not valid:
                 raise ValueError()
         except (KeyError, AttributeError, TypeError, ValueError):
@@ -152,23 +118,18 @@ class BudgetedNightshiftClient:
                 'output_tokens': output_tokens, 'max_output_tokens': request_limit}
 
     def complete(self, messages, max_tokens=1200):
-        if self.stopped or self.attempts >= MAX_GATEWAY_CALLS:
-            raise IntegrationError('The one-run hosted generation allowance is exhausted or stopped.')
+        if self.stopped:
+            raise IntegrationError('Hosted generation has stopped after an earlier failure.')
         try:
             if not (isinstance(max_tokens, int) and not isinstance(max_tokens, bool) and 1 <= max_tokens <= 4096):
                 raise ValueError('Invalid requested output-token limit')
             if not (self.client.configured and self.client.allow_inference and self.client.hosted_only is True
                     and self.client.model == self.policy.approved_route):
                 raise IntegrationError('Nightshift no longer matches the approved hosted configuration.')
-            if (self.policy.approved_route.startswith(('nvidia/nemotron-3-', 'nvidia/nemotron-3.'))
-                    and self.client.enable_thinking is not False):
-                raise IntegrationError('The approved NVIDIA Nemotron route requires thinking disabled.')
-            assert_bounded_execution(self.client)
-            limit = min(max_tokens, MAX_OUTPUT_TOKENS)
+            limit = max_tokens
             self.attempts += 1
             self.journal['gateway_generation_attempts'] = self.attempts
-            self.journal['conservative_upstream_attempt_bound'] = self.attempts * UPSTREAM_ATTEMPTS_PER_CALL
-            self._flush()  # A crash or timeout still consumes this attempt.
+            self._flush()  # Record an attempted request even if it times out.
             nonce = 'incidentcourt-browser-' + uuid.uuid4().hex
             dispatched = [dict(item) for item in messages]
             marker = '\nVerification context nonce: ' + nonce + '. Keep the requested response schema unchanged; do not echo this nonce.'

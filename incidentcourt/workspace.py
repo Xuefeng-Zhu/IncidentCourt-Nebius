@@ -148,9 +148,6 @@ CREATE TABLE IF NOT EXISTS investigations(
  UNIQUE(context_id,request_key));
 CREATE INDEX IF NOT EXISTS investigations_context ON investigations(context_id,created_at);
 CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT);
-CREATE TABLE IF NOT EXISTS hosted_run_allowances(
- nonce_hash TEXT PRIMARY KEY,context_id TEXT NOT NULL,incident_id TEXT NOT NULL,
- investigation_id TEXT NOT NULL,approved_route TEXT NOT NULL,created_at TEXT NOT NULL);
 ''')
             db.execute('INSERT OR IGNORE INTO contexts(id,mode,label) VALUES(?,?,?)', (self.context['id'], self.context['mode'], self.context['label']))
         self.path.chmod(0o600)
@@ -308,28 +305,15 @@ CREATE TABLE IF NOT EXISTS hosted_run_allowances(
             row = db.execute('SELECT id FROM investigations WHERE context_id=? AND request_key=?', (self.context['id'], key)).fetchone()
             return row['id'] if row else None
 
-    def allowance_available(self, policy):
-        with self.db() as db:
-            return db.execute('SELECT 1 FROM hosted_run_allowances WHERE nonce_hash=?',
-                              (policy.nonce_hash,)).fetchone() is None
-
-    def reserve(self, incident_id, key, policy=None):
+    def reserve(self, incident_id, key):
         self.case(incident_id)
-        if policy is not None and (self.context['mode'] != 'zetaris' or policy.incident_id != incident_id):
-            raise WorkspaceError('This hosted allowance is scoped to a different incident or source.', 403)
         identity = uuid.uuid4().hex[:20]
         try:
             with self.db() as db:
-                # The allowance and run reservation commit together. The nonce
-                # cannot be reused across contexts, processes, failures or restarts.
-                db.execute('BEGIN IMMEDIATE')
-                if policy is not None:
-                    db.execute('INSERT INTO hosted_run_allowances VALUES(?,?,?,?,?,?)',
-                               (policy.nonce_hash, self.context['id'], incident_id, identity, policy.approved_route, now()))
                 db.execute('INSERT INTO investigations(id,context_id,incident_id,linked,state,stage,created_at,updated_at,origin,request_key) VALUES(?,?,?,?,?,?,?,?,?,?)',
                            (identity, self.context['id'], incident_id, 1, 'queued', 'Starting', now(), now(), 'generated', key))
         except sqlite3.IntegrityError:
-            raise WorkspaceError('This run authorization or request key has already been used.', 409) from None
+            raise WorkspaceError('This request key has already been used.', 409) from None
         return identity
 
     def progress(self, identity, stage, count):
@@ -381,13 +365,13 @@ class JobManager:
                     except IntegrationError as exc:
                         raise WorkspaceError(str(exc), 403) from None
                     except ValueError:
-                        raise WorkspaceError('New AI investigations are paused. A one-run hosted authorization is required.', 403) from None
-                identity = self.workspace.reserve(incident_id, key, policy)
+                        raise WorkspaceError('New AI investigations are paused. Check the hosted model configuration.', 403) from None
+                identity = self.workspace.reserve(incident_id, key)
                 self.active_id = identity
                 guarded = None
                 if policy is not None:
-                    from .hosted_guard import BudgetedNightshiftClient
-                    guarded = BudgetedNightshiftClient(client, policy, identity)
+                    from .hosted_guard import HostedNightshiftClient
+                    guarded = HostedNightshiftClient(client, policy, identity)
                 thread = threading.Thread(target=self._run, args=(identity, incident_id, model, guarded), daemon=True)
                 self.threads[identity] = thread
                 thread.start()
@@ -411,8 +395,6 @@ class JobManager:
             if guarded is not None:
                 kwargs['client'] = guarded
             report = self.runner(incident_id, **kwargs)
-            if guarded is not None and (guarded.attempts != 3 or len(guarded.journal['calls']) != 3):
-                raise RuntimeError('The authorized browser investigation did not complete three calls with verified runtime receipts.')
             self.workspace.save_report(report, identity=identity)
         except Exception:
             self.workspace.failed(identity)

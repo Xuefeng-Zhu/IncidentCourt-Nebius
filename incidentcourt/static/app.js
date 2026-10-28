@@ -64,12 +64,10 @@ function canExecuteInvestigation(status, model) {
   return model === 'local';
 }
 
-function canStartWorkspaceInvestigation(status, dataMode, incident = null) {
+function canStartWorkspaceInvestigation(status, dataMode) {
   if (dataMode === 'sample') return true;
   const model = status?.model;
-  return dataMode === 'zetaris' && model?.inference_enabled === true && model?.hosted_only === true &&
-    typeof model.approved_incident === 'string' && /^IC-\d{3}$/.test(model.approved_incident) &&
-    (!incident || model.approved_incident === incident);
+  return dataMode === 'zetaris' && model?.inference_enabled === true && model?.hosted_only === true;
 }
 
 // A loaded record wins over a late archive response, including offline imports.
@@ -429,13 +427,13 @@ if (typeof document !== 'undefined') (() => {
   function heading(title, description) {
     const wrap=el('div','compact-heading');wrap.append(el('h2','',title));if(description)wrap.append(el('p','muted',description));return wrap;
   }
-  function canStart(incident = null) {
-    return canStartWorkspaceInvestigation(state.status, state.catalog.context?.mode, incident);
+  function canStart() {
+    return canStartWorkspaceInvestigation(state.status, state.catalog.context?.mode);
   }
   async function refreshExecutionStatus() {
     try { state.status = await request('/api/status'); }
     catch (_) {
-      // Treat an unknown hosted allowance as unavailable until status can be read.
+      // Treat unknown hosted execution status as unavailable until it can be read.
       if (state.catalog.context?.mode !== 'sample') state.status = null;
     }
   }
@@ -492,9 +490,9 @@ if (typeof document !== 'undefined') (() => {
     const c=data.case;state.caseId=c.id;
     $('case-title').textContent=c.id+' · '+(incidentTitle(c)||'Incident');
     const window=windowParts(c.start_ts,c.end_ts);$('case-subtitle').textContent=`${c.source||state.catalog.context.label} · ${window.day}${window.time?' · '+window.time:''}`;
-    const available=canStart(id), approved=state.status?.model?.approved_incident;
+    const available=canStart();
     $('case-new-run').disabled=!available||!!state.catalog.active;
-    $('case-run-note').textContent=state.catalog.active?'One investigation is already running in this workspace.':available?'A new run preserves all earlier results.':approved&&state.status?.model?.inference_enabled?`A new AI run is available for ${approved}.`:'New AI runs are paused. You can still read and review existing investigations.';
+    $('case-run-note').textContent=state.catalog.active?'One investigation is already running in this workspace.':available?'A new run preserves all earlier results.':'New AI runs are paused. You can still read and review existing investigations.';
     const overview=clear($('case-overview'));const strip=el('div','case-summary');strip.append(chip(c.status),el('span','muted',`${c.investigation_count} investigation${c.investigation_count===1?'':'s'}`));overview.append(strip);
     if(c.completed){const box=el('section','latest-assessment');box.append(heading('Latest assessment',c.completed.candidate||'No service identified'),link('Open investigation →','/investigations/'+c.completed.id,'primary-link'));overview.append(box);}
     else if(!data.investigations.length)overview.append(el('p','no-items','This case has not been investigated. Start a run when execution is available.'));
@@ -568,16 +566,14 @@ if (typeof document !== 'undefined') (() => {
     finally{state.refreshBusy=false;$('refresh-cases').disabled=false;$('refresh-cases').textContent='Refresh telemetry';}
   }
   async function startRun() {
-    if(state.starting||!canStart(state.caseId))return;state.starting=true;$('case-new-run').disabled=true;
+    if(state.starting||!canStart())return;state.starting=true;$('case-new-run').disabled=true;
     const incident=state.caseId;
     if(!state.requestKeys.has(incident))state.requestKeys.set(incident,crypto.randomUUID());
     try{
       const run=await post('/api/investigations',{incident_id:incident,idempotency_key:state.requestKeys.get(incident)});
-      // The server consumes a hosted permit before the job is returned.
-      if(state.catalog.context?.mode!=='sample'&&state.status?.model)state.status.model.inference_enabled=false;
       state.requestKeys.delete(incident);await loadCatalog();location.hash='/investigations/'+run.id;
     }catch(error){if(error.details?.investigation_id){location.hash='/investigations/'+error.details.investigation_id;}else showError(error);}
-    finally{await refreshExecutionStatus();state.starting=false;$('case-new-run').disabled=!canStart(state.caseId)||!!state.catalog.active;}
+    finally{await refreshExecutionStatus();state.starting=false;$('case-new-run').disabled=!canStart()||!!state.catalog.active;}
   }
   async function saveReview() {
     if(!state.current||!state.dirty)return;

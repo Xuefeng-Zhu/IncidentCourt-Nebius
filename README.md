@@ -66,7 +66,7 @@ When a valid private verification receipt and its reports are explicitly configu
 
 New case/history APIs are `/api/cases`, `/api/cases/{id}`, `/api/investigations`, and `/api/investigations/{id}`. POST starts an investigation with `incident_id` and `idempotency_key`; `/api/investigations/{id}/review` saves `note`, `reviewed`, and the current `version`. `/api/investigations/import` accepts a complete report up to 5 MiB. `/api/cases/refresh` and `/api/connections/check` refresh metadata without inference. The CLI and synchronous endpoints remain available for offline execution; hosted browser runs use the guarded workspace endpoint.
 
-The background UI was exercised end to end using isolated offline sample SQL/rules, including navigation/reload during a gated QA run and eventual completion. This does not constitute a new hosted-provider verification. The existing hosted allowance remains exhausted and inference stays disabled.
+The background UI was exercised end to end using isolated offline sample SQL/rules, including navigation/reload during a gated QA run and eventual completion. This does not constitute a new hosted-provider verification.
 
 ## Investigation behavior
 
@@ -97,6 +97,15 @@ See [data provenance](docs/DATA.md) and the manifests under `data/public/`.
 
 ## Sponsor connections
 
+In the hosted investigation path, each component has a distinct role:
+
+1. **Zetaris** serves the incident, metric, log and trace tables. The investigator issues bounded SELECT queries and records their results as evidence.
+2. **Meterless H-MEM** recalls eligible findings from earlier investigations. Recalled service names prompt fresh Zetaris queries; historical memory is a lead, not current evidence.
+3. **Nightshift** is the gateway for the planner, critic and explanation requests. The planner chooses an observed service and the critic can direct a follow-up query.
+4. **NVIDIA Nemotron** supplies the hosted model responses through Nightshift. The historical verification used `nvidia/nemotron-3.5-lightning-30b-a3b`; local sample mode uses deterministic rules instead of this model.
+
+The table describes the October 25, 2026 verification, not a guarantee that those services or credentials are currently available:
+
 | Component | Verified layer | Remaining layer |
 | --- | --- | --- |
 | Meterless H-MEM | Official reference recalled history and triggered two actual Zetaris queries; holdout memory unchanged | Full conformance and production engine behavior not claimed |
@@ -104,11 +113,23 @@ See [data provenance](docs/DATA.md) and the manifests under `data/public/`.
 | Nightshift | Six distinct uncached planner/critic/explanation responses across two real investigations | Saved live record browser citation/query/export checks passed; new generation disabled after the approved budget |
 | NVIDIA | Every response named the exact approved `nvidia/nemotron-3.5-lightning-30b-a3b` route through Nightshift | Runtime cost reports do not independently prove account billing |
 
-For optional integrations, copy `.env.example` to the ignored `.env.local` and supply existing connection settings. Environment variables take precedence over `.env.local` values. Run `python3.12 -m scripts.check_integrations` for read-only discovery and SELECT checks; it does not send inference requests or create resources. See [Zetaris data path](docs/ZETARIS.md) and [Meterless/Nightshift details](docs/INTEGRATIONS.md).
+For optional integrations, configure an existing Zetaris instance and Nightshift gateway. Start with a local settings file, preserving it if one already exists:
+
+```sh
+test -e .env.local || cp .env.example .env.local
+```
+
+Set `SAMPLE_MODE=false`, `INCIDENTCOURT_DATA_MODE=zetaris`, the Zetaris connection and registered table namespace, and the existing Nightshift gateway token and advertised model ID. The H-MEM reference is already vendored and uses Node.js; it does not require a separate hosted memory service. Configure the NVIDIA provider key in Nightshift, not in this repository. Environment variables take precedence over `.env.local` values; keep credentials out of Git.
+
+```sh
+python3.12 -m scripts.check_integrations
+```
+
+This preflight performs read-only discovery and SELECT checks; it does not send inference requests or create resources. Configuring a connection or passing preflight does not itself verify an end-to-end hosted investigation. For registration and live-run prerequisites, see [Zetaris data path](docs/ZETARIS.md) and [Meterless/Nightshift details](docs/INTEGRATIONS.md).
 
 The earlier six-call allowance was consumed. Those responses reported zero estimated cost and 890 output tokens in total; the runtime figures are not an invoice. The receipts do not establish the number or route of every internal model call, including any cross-check or tool loop.
 
-The browser's one-run guard requires a specific incident, exact hosted route and single-use nonce, and checks receipts after each of at most three gateway calls. It also requires an adapter that can enforce the upstream-attempt limit and exclude internal local-model calls. The staged Nightshift version cannot establish those controls, so hosted browser generation remains paused even if `NIGHTSHIFT_ALLOW_INFERENCE=1`. Runtime cost estimates cannot guarantee free-credit-only billing; confirm that separately before any future dispatch. See [live verification](docs/LIVE_VERIFICATION.md) for the current limitation. An NVIDIA key belongs in Nightshift, not this app.
+The browser's hosted path requires an explicitly configured NVIDIA Nemotron route and inference opt-in. It retains per-call receipts and checks each returned route and cost estimate. The selected route and its winning-route receipt do not establish which auxiliary models Nightshift may use; those depend on Nightshift's own configuration. Runtime cost estimates cannot guarantee free-credit-only billing. See [live verification](docs/LIVE_VERIFICATION.md) for the evidence and limitations. An NVIDIA key belongs in Nightshift, not this app.
 
 ## Verification
 
