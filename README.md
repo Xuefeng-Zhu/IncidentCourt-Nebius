@@ -2,11 +2,13 @@
 
 IncidentCourt is a local workspace for investigating incidents across metrics, logs and distributed traces. It builds and challenges service hypotheses, then presents a timeline, supporting evidence, counterevidence, alternatives and uncertainty. It was originally built for the **Open Agent Hackathon** and is being adapted for the Nebius x NVIDIA Global AI Hackathon.
 
-The bundled sample runs offline with deterministic rules and real, sampled [RCAEval](https://huggingface.co/datasets/phamquiluan/RCAEval) telemetry. A separate opt-in mode connects the same telemetry to an NVIDIA model on Nebius Token Factory. H-MEM recalls eligible prior observations locally. The Nebius path has simulated-provider tests but has not yet been verified with live inference. See [verification](docs/LIVE_VERIFICATION.md) for the evidence and limits.
+The bundled sample runs offline with deterministic rules and real, sampled [RCAEval](https://huggingface.co/datasets/phamquiluan/RCAEval) telemetry. A separate opt-in mode connects the same telemetry to an NVIDIA model on Nebius Token Factory. H-MEM recalls eligible prior observations locally. On October 27, 2026, a browser-started investigation using the sample telemetry completed with live NVIDIA Nemotron inference through Nebius Token Factory. See [verification](docs/LIVE_VERIFICATION.md) for the evidence and limits.
+
+[Watch the demo](https://youtu.be/AXyv-4xRrsc) for a walkthrough of the investigation and its evidence. The app footage reviews a saved run.
 
 ## Run the offline sample
 
-Requires **Python 3.12+** with SQLite and **Node.js 24+**. No pip or npm installation, credentials or network access are needed to run the sample. The bundled fixture contains measured telemetry from controlled experiments; it is not a set of generated incidents or replayed reports.
+Requires **Python 3.12+** with SQLite and **Node.js 24+**. No pip or npm installation, credentials or network access are needed to run the sample. The bundled fixture contains measured telemetry from controlled experiments; it is not a set of generated incidents or replayed reports. The submission repository is currently private, so cloning requires authorized GitHub access; public release is pending approval.
 
 ```sh
 git clone https://github.com/Xuefeng-Zhu/IncidentCourt-Nebius.git
@@ -37,15 +39,15 @@ curl -s http://127.0.0.1:8317/run \
   -d '{"incident_id":"IC-001","model":"local"}'
 ```
 
-`SAMPLE_MODE=true` also selects offline mode. A small SQLite file is restored from the committed fixture without network access. It makes no telemetry or model network calls. Sample, full local and live modes have distinct receipts and separate sample memory stores.
+`--sample` selects the offline sample and clears the Nebius sample switch. The sample SQLite database is restored from the committed fixture without network access. `--nebius-sample` uses the same sample telemetry but enables the separately configured hosted model path; `SAMPLE_MODE=true` alone does not distinguish the two when `INCIDENTCOURT_NEBIUS_SAMPLE=1` is also set. Offline and Nebius sample runs share the sample source identity and H-MEM store; their execution modes and provider receipts remain distinct.
 
 ## Nebius Token Factory with sample telemetry
 
 The `--nebius-sample` mode combines the bundled RCAEval sample with NVIDIA model inference through Nebius Token Factory. It sends the planner, critic and explanation requests to the fixed Token Factory API, checks that the explicitly configured NVIDIA model is advertised, and rejects a different returned model. Evidence IDs are validated against the investigation. Model-generated explanations remain unreviewed. A provider error fails the investigation rather than silently switching to deterministic rules.
 
-**Status:** this integration has contract tests with a simulated provider. A real Nebius investigation, its cost, and model availability have not yet been verified. `--sample` remains entirely offline and does not use a model. A key and inference opt-in are required for the Nebius mode; merely configuring a key does not authorize inference. Token Factory requests may consume credits or incur charges, so check your account and pricing before enabling them.
+**Status:** on October 27, 2026, one browser-started sample investigation completed with three live Token Factory responses from `nvidia/nemotron-3-super-120b-a12b`. The report contained 21 evidence records and 14 queries; its checked evidence and query references resolved. This is a single integration run, not an accuracy or production claim. Its exact cost and final account billing were not verified. `--sample` remains entirely offline and does not use a model. A key and inference opt-in are required for the Nebius mode; merely configuring a key does not authorize inference. Token Factory requests may consume credits or incur charges, so check your account and pricing before enabling them.
 
-Set `NEBIUS_API_KEY` securely in your environment, without committing it. Set `NEBIUS_MODEL` to the exact NVIDIA open-source model ID advertised for your account (for example, `nvidia/nemotron-3-super-120b-a12b` **only if available to you**) and explicitly opt in to inference:
+Set `NEBIUS_API_KEY` securely in your environment or the ignored project-local `.env.local` file, without committing it or sharing its value. Restrict the local file to the owner (for example, `chmod 600 .env.local`). Set `NEBIUS_MODEL` to the exact NVIDIA open-source model ID advertised for your account (for example, `nvidia/nemotron-3-super-120b-a12b` **only if available to you**) and explicitly opt in to inference:
 
 ```sh
 export NEBIUS_MODEL='nvidia/nemotron-3-super-120b-a12b' # replace if necessary
@@ -84,7 +86,7 @@ Manually imported compatible JSON snapshots persist in the library, remain visib
 
 New case/history APIs are `/api/cases`, `/api/cases/{id}`, `/api/investigations`, and `/api/investigations/{id}`. POST starts an investigation with `incident_id` and `idempotency_key`; `/api/investigations/{id}/review` saves `note`, `reviewed`, and the current `version`. `/api/investigations/import` accepts a complete report up to 5 MiB. `/api/cases/refresh` and `/api/connections/check` refresh metadata without inference. The CLI and synchronous endpoints remain available for offline execution; hosted browser runs use the guarded workspace endpoint.
 
-The background UI was exercised end to end using isolated offline sample SQL/rules, including navigation/reload during a gated QA run and eventual completion. This does not constitute a new hosted-provider verification.
+The background UI was exercised with offline sample SQL/rules, including navigation and reload during a gated QA run. A separate October 27 browser-started run exercised the live Nebius path with sample telemetry; see [verification](docs/LIVE_VERIFICATION.md) for the evidence and limits.
 
 ## Investigation behavior
 
@@ -130,7 +132,7 @@ npm test --prefix vendor/meterless-hmem
 
 Tests cover offline restore, units/nulls, query boundaries, missing telemetry, hypothesis revision, H-MEM behavior/exclusion, provider contracts, citation rejection, redirects and HTTP validation. Synthetic test fixtures are labeled and separate from dataset runs. Upstream H-MEM smoke tests cover ten cases; no full conformance claim is made.
 
-Historical verification from the original project and its limits are summarized in [live verification](docs/LIVE_VERIFICATION.md). Those historical provider results do not establish Nebius Token Factory usage in this checkout. Private receipts retain sensitive data and are not committed demo assets.
+The current checkout’s live Nebius run and the original project’s separate historical verification are summarized in [live verification](docs/LIVE_VERIFICATION.md). The live run’s sanitized summary and provider receipts are private, ignored artifacts; raw receipts contain prompts and outputs and are not committed demo assets.
 
 After importing the larger local dataset, `python3.12 -m scripts.verify_memory_flow` runs the label-blind real-data memory check. It runs cold/history/warm investigations and preserves passing or failed receipts under ignored `artifacts/private/`. Reports are under `artifacts/runs/`; agent/query JSONL traces are under `logs/`. Example outputs never act as canned API responses.
 
@@ -145,4 +147,4 @@ The container defaults to sample mode. Remote adapters require HTTPS. This is a 
 
 ## Event context
 
-This checkout is being prepared for the [Nebius x NVIDIA Global AI Hackathon](https://nebiusglobalaihackathon.devpost.com/). Consult the event's current requirements and [submission draft](devpost-submission.md) before publication. A live Nebius-backed investigation and judge-accessible build remain to be verified.
+This checkout is being prepared for the [Nebius x NVIDIA Global AI Hackathon](https://nebiusglobalaihackathon.devpost.com/). Consult the event's current requirements and [submission draft](devpost-submission.md) before publication. A judge-accessible build and public demo video remain to be prepared.

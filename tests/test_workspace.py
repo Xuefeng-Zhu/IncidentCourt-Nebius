@@ -27,6 +27,11 @@ class WorkspaceTests(unittest.TestCase):
         self.w.cache_cases([{'id':'IC-001','title':'Fixture case','start_ts':0,'end_ts':90}, {'id':'IC-002','title':'Second fixture case'}])
     def tearDown(self): self.temp.cleanup()
 
+    def test_current_context_label_is_not_replaced_by_the_persisted_label(self):
+        alternate = Workspace(self.path, {'id':'sample-fixture', 'mode':'sample', 'label':'Sample telemetry + Nebius mode'})
+        self.assertEqual(alternate.cases()['context']['label'], 'Sample telemetry + Nebius mode')
+        self.assertEqual(self.w.cases()['context']['label'], 'Fixture sample')
+
     def test_review_persists_without_changing_original_or_other_source(self):
         report = fixture_report()
         identity = self.w.save_report(report, origin='verification', linked=True)

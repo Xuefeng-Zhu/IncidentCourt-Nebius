@@ -21,7 +21,7 @@ The server exposes local JSON routes for cases, investigations, review, import, 
 
 The committed sample is a bounded subset of controlled RCAEval experiments; missing values and incomplete trace coverage remain visible. A sample investigation is useful for offline development, but it does not verify a remote provider or establish causal accuracy. See [data provenance](DATA.md) for sampling, units, leakage boundaries and licensing.
 
-The original project previously verified Zetaris queries and a separate hosted model path with the official H-MEM reference. Its scope and limits are documented in [live verification](LIVE_VERIFICATION.md); those results do not verify the Nebius integration. Configuration or a successful metadata check alone does not establish an end-to-end live run. [Handoff](HANDOFF.md) records historical project-specific setup and delivery context; verify time-sensitive state before relying on it.
+The original project previously verified Zetaris queries and a separate hosted model path with the official H-MEM reference; those results are distinct from Nebius. On October 27, the submission checkout completed a browser-started live Token Factory investigation over sample telemetry. [Live verification](LIVE_VERIFICATION.md) documents its provider receipts, citation checks and limits. Configuration or a successful metadata check alone does not establish an end-to-end live run. [Handoff](HANDOFF.md) records historical project-specific setup and delivery context; verify time-sensitive state before relying on it.
 
 Run the offline application suite from the repository root:
 

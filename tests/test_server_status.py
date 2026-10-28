@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from incidentcourt import server
+from incidentcourt.workspace import source_context
 
 class StatusTests(unittest.TestCase):
     def setUp(self):
@@ -17,6 +18,15 @@ class StatusTests(unittest.TestCase):
 
     def tearDown(self):
         self.temp.cleanup()
+
+    def test_sample_source_label_distinguishes_nebius_from_offline_without_changing_identity(self):
+        with patch.dict(os.environ, {'SAMPLE_MODE': 'true', 'INCIDENTCOURT_NEBIUS_SAMPLE': '0'}, clear=True):
+            offline = source_context()
+        with patch.dict(os.environ, {'SAMPLE_MODE': 'true', 'INCIDENTCOURT_NEBIUS_SAMPLE': '1'}, clear=True):
+            nebius = source_context()
+        self.assertEqual(offline['label'], 'Offline sample')
+        self.assertEqual(nebius['label'], 'Sample telemetry + Nebius mode')
+        self.assertEqual(offline['id'], nebius['id'])
 
     def test_local_mode_does_not_configure_a_provider(self):
         with patch.object(server, 'ROOT', self.root), patch.dict(os.environ, {

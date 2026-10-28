@@ -378,7 +378,7 @@ if (typeof document !== 'undefined') (() => {
       top.append(title, el('span', 'query-count', `${item.row_count ?? '?'} row${item.row_count === 1 ? '' : 's'}`));
       const details = el('details', 'query-sql');
       details.append(el('summary', '', 'SQL'), el('pre', '', item.sql || 'No SQL recorded.'));
-      card.append(top, el('p', 'query-backend', ({ zetaris: 'Zetaris', local: 'Local SQLite', sample: 'Offline sample' }[item.backend] || 'Backend not recorded')), details);
+      card.append(top, el('p', 'query-backend', ({ zetaris: 'Zetaris', local: 'Local SQLite', sample: 'Sample SQLite' }[item.backend] || 'Backend not recorded')), details);
       queries.append(card);
     }
     if (!queries.childElementCount) queries.append(el('p', 'no-items', 'No query receipts recorded.'));

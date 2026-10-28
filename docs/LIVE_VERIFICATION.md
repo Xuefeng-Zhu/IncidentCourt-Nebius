@@ -2,9 +2,13 @@
 
 ## Current Nebius submission checkout
 
-The offline sample uses deterministic investigation rules and bundled, anonymized telemetry from controlled RCAEval experiments. It does not call a model or remote telemetry service. The Nebius sample path is covered by simulated-provider tests, including the investigation pipeline and evidence-reference validation. These tests do not prove Token Factory connectivity, real model quality, latency or cost.
+The offline `--sample` mode uses deterministic investigation rules and bundled, anonymized telemetry from controlled RCAEval experiments. It does not call a model or remote telemetry service. The separate `--nebius-sample` mode uses that telemetry and live Token Factory inference when explicitly configured and enabled.
 
-A live Nebius-backed investigation remains to be run after an available NVIDIA model, account access, spending terms and explicit inference authorization are established. Model discovery alone is not a successful investigation. Preserve failed and successful private receipts, review them for sensitive content before sharing, and do not present provider-reported usage as an independent billing statement.
+On October 27, 2026, a browser-started investigation of sample incident `IC-001` completed as run `1e0a06316d68` using `nvidia/nemotron-3-super-120b-a12b` through Nebius Token Factory. Three dispatched provider calls completed for the planner, critic and explanation, each reporting the requested model. Together they reported 2,308 input tokens and 1,765 output tokens, with no cached input tokens. The report contained 21 evidence records and 14 queries; 29 checked evidence references and all evidence query references resolved. The model explanation contained 11 citations. These checks establish identifier resolution, not that each generated claim is factually correct or that the proposed cause is accurate.
+
+The ignored local summary is `artifacts/private/nebius-e2e-20261027/summary.json`; it points to the private report and three private per-call receipts. The report and receipts contain prompts or model outputs and must be reviewed before sharing. No real-time screenshot or video was saved during this run; a later offline review of the saved report was recorded for the demo. The immediately inspected billing dashboard had not updated since before the test, so the exact cost, credit deduction and any delayed charge are unverified; token usage is not an independent billing statement. This one run does not establish diagnostic accuracy, production readiness, deployment or judge access.
+
+Simulated-provider tests separately cover the investigation pipeline and evidence-reference validation; model discovery and simulated tests alone do not establish a live run. Preserve failed and successful private receipts and review them for sensitive content before sharing.
 
 ## Historical verification in the original project
 

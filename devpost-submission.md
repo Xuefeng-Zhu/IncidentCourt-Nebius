@@ -27,7 +27,7 @@ The bundled offline sample is based on anonymized, measured telemetry from contr
 
 ### Nebius and NVIDIA integration
 
-**Pending live verification.** The planned Token Factory path uses [exact NVIDIA open-source model ID and variant: TODO] for [planner / critic / explanation calls actually exercised: TODO]. [Describe the actual Token Factory API path and configuration after verification: TODO]. Do not describe a Nebius response, latency, accuracy, or cost until it is observed and supported by a receipt.
+On October 27, 2026, a browser-started investigation of sample telemetry made three live Nebius Token Factory calls to `nvidia/nemotron-3-super-120b-a12b` for the planner, critic and explanation. Its report contained 21 evidence records and 14 queries; checked evidence and query references resolved. This is one integration run, not a measured accuracy benchmark. Actual billing and cost remain unverified.
 
 Earlier NVIDIA Nemotron results through Nightshift establish a different provider path; they do not establish Nebius usage. Synthetic fixtures and metadata-only connection checks also do not establish a completed Nebius investigation.
 
@@ -37,7 +37,7 @@ The project makes evidence easier to inspect and challenge in a workflow where a
 
 ## How AI and development tools were used
 
-- **Application AI:** [Add the actual model, provider, prompts, and role of each completed model call after a real Nebius run. Do not imply fine-tuning if none occurred.]
+- **Application AI:** The live test used Nebius Token Factory with NVIDIA Nemotron 3 Super 120B for structured planner, critic and explanation calls. The application validates returned evidence identifiers; generated prose still needs review. [Add a supported choice rationale and confirm any fine-tuning claims.]
 - **Development assistance:** Codex was used to develop and iterate on the project. [Add concrete, evidenced examples of how it contributed to this entry.]
 - **Historical evidence:** Previous investigations used separate hosted NVIDIA Nemotron responses through Nightshift. This is historical context, not proof of Token Factory use.
 
@@ -59,17 +59,17 @@ python3.12 run.py --sample
 
 Open `http://127.0.0.1:8317`, select an incident, and choose **New investigation**. Explore the report, cited observations, query trail and visuals; stop the server with `Ctrl+C`. This verifies deterministic sample behavior, not the Nebius model path.
 
-**Nebius-enabled testing:** [TODO — document exact prerequisites, secure credential setup, model ID and command after the path is verified. Do not include private credentials. Specify costs and any restrictions honestly.]
+**Nebius-enabled testing:** Follow the [README setup](README.md#nebius-token-factory-with-sample-telemetry) with an available NVIDIA model, a securely configured API key and explicit inference opt-in. The verified run used `nvidia/nemotron-3-super-120b-a12b`. Requests may consume credits or incur charges; exact test billing remains unverified. [TODO: provide a free, unrestricted judge-accessible path; judge-supplied credentials may not meet the event requirement.]
 
 ## Links
 
 - **Public repository:** [TODO — final URL and commit after publication.]
 - **Working demo or downloadable test build:** [TODO — public, judge-accessible URL.]
-- **Public YouTube demo:** [TODO — approved upload, less than three minutes.]
+- **Public YouTube demo:** https://youtu.be/AXyv-4xRrsc (1:49; includes interaction with a saved run).
 
 ## Demo video outline
 
-Record a new demonstration after a real Nebius-backed investigation is authorized and succeeds; never relabel the existing Nightshift capture as Nebius.
+The public video reviews the saved Nebius-backed report and includes a later offline replay of application interactions. It does not depict a new live inference request.
 
 - **0:00–0:15:** Show the incident and the review problem; present the final evidence view early.
 - **0:15–0:45:** Start a genuine investigation and identify the configured NVIDIA model and Nebius Token Factory connection without showing credentials.
@@ -104,11 +104,11 @@ Field labels and IDs are from the live Devpost requirements checked October 27, 
 | 28269 | Significant updates for existing projects | [Complete only if applicable and supported by history.] |
 | 28270 | Public code repository | [TODO: final public repository URL.] |
 | 28271 | Working demo / test build | [TODO: public URL. Required by the event description for this track.] |
-| 28272 | Models and why this size/variant | [TODO: exact model and evidence-based rationale.] |
+| 28272 | Models and why this size/variant | Live run: `nvidia/nemotron-3-super-120b-a12b`. [TODO: user-supported selection rationale.] |
 | 28273 | Nemotron output quality, 1–10 | [User rating and specific observed strengths/limitations after use.] |
 | 28274 | Fine-tuning, prompt engineering or out-of-box | [Describe verified implementation; confirm no fine-tuning if applicable.] |
 | 28275 | Comparison with other models | [User's supported comparison or explicitly state no comparable evaluation.] |
-| 28276 | Valuable Nebius capabilities and setup | [Describe actual API, model and deployment configuration after verification.] |
+| 28276 | Valuable Nebius capabilities and setup | Live test used Token Factory API access with the configured NVIDIA model. [TODO: user’s experience and any other verified setup details.] |
 | 28277 | Recommendation likelihood, 1–10 | [User's rating and reasons.] |
 | 28278 | Experience versus prior environments, 1–10 | [User's rating and reasons.] |
 | 28279 | Nebius/Nemotron improvements | [User's experience-based feedback.] |
@@ -123,9 +123,10 @@ Field labels and IDs are from the live Devpost requirements checked October 27, 
 
 ## Readiness checklist
 
-- [ ] Verify an actual Nebius Token Factory + NVIDIA model investigation, retaining sanitized evidence and failed attempts.
+- [x] Verify one actual Nebius Token Factory + NVIDIA model investigation; retain its private sanitized summary and call receipts. The current run has no saved screenshot or video.
 - [ ] Verify clean-environment test-build instructions and publish a judge-accessible build with approval.
 - [ ] Review repository history, attribution, first-party license and secrets before making the final source public.
-- [ ] Capture new Nebius-backed demo footage and screenshots, review privacy, and publish the video with approval.
+- [x] Publish the Nebius demo video; it includes an offline replay of the saved report.
+- [ ] Review and publish any additional screenshots only with approval.
 - [ ] Complete user-specific feedback, team and eligibility fields and inspect the full Devpost preview.
 - [ ] Submit only after explicit final approval. Deadline: October 30, 2026 at 10:00 a.m. Pacific. Organizer says not to edit submission materials after the deadline.

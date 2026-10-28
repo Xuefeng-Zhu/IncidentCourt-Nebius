@@ -39,8 +39,11 @@ def source_context():
     else:
         manifest = ROOT / ('data/public/sample-manifest.json' if mode == 'sample' else 'data/public/manifest.json')
         identity['manifest'] = hashlib.sha256(manifest.read_bytes()).hexdigest() if manifest.exists() else 'not-imported'
+    label = {'zetaris': 'Zetaris archive', 'sample': 'Offline sample', 'local': 'Local archive'}.get(mode, mode)
+    if mode == 'sample' and os.environ.get('INCIDENTCOURT_NEBIUS_SAMPLE') == '1':
+        label = 'Sample telemetry + Nebius mode'
     return {'id': hashlib.sha256(canonical(identity).encode()).hexdigest()[:24], 'mode': mode,
-            'label': {'zetaris': 'Zetaris archive', 'sample': 'Offline sample', 'local': 'Local archive'}.get(mode, mode)}
+            'label': label}
 
 
 def validate_report(report):
@@ -204,6 +207,10 @@ CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT);
         with self.db() as db:
             records = [json.loads(r['data']) for r in db.execute('SELECT data FROM cases WHERE context_id=? ORDER BY incident_id', (self.context['id'],))]
             context = dict(db.execute('SELECT * FROM contexts WHERE id=?', (self.context['id'],)).fetchone())
+        # The telemetry identity is shared across offline and Nebius modes, but
+        # the visible label must reflect the current execution mode, not the mode
+        # that happened to create the persisted context row first.
+        context['label'] = self.context['label']
         # A verified historical case remains navigable if the source is offline.
         known = {r['id'] for r in records}
         for run in runs:
