@@ -59,7 +59,7 @@ def validate_report(report):
     require(isinstance(report, dict))
     require(bool(re.fullmatch(r'IC-\d{3}', str(report.get('incident_id', '')))))
     require(bool(re.fullmatch(r'[a-f0-9]{12}', str(report.get('run_id', '')))))
-    require(bool(re.fullmatch(r'(sample|local|zetaris) / (local|nightshift)', str(report.get('mode', '')))))
+    require(bool(re.fullmatch(r'(sample|local|zetaris) / (local|nightshift|nebius)', str(report.get('mode', '')))))
     data_mode, model_mode = report['mode'].split(' / ')
     require(text(report.get('summary')) and isinstance(report.get('model'), dict) and report['model'].get('mode') == model_mode)
     require(isinstance(report.get('memory'), dict) and text(report['memory'].get('mode'), 120) and text(report.get('created_at'), 80))
@@ -117,7 +117,7 @@ def validate_report(report):
     require(isinstance(report.get('counterevidence', []), list) and len(report.get('counterevidence', [])) <= 100)
     for item in report.get('counterevidence', []):
         require(isinstance(item, dict) and text(item.get('summary')) and refs(item.get('evidence_ids')))
-    if model_mode == 'nightshift':
+    if model_mode in ('nightshift', 'nebius'):
         explanation = report.get('provider_explanation', {})
         require(isinstance(explanation, dict) and text(explanation.get('summary')) and bool(explanation.get('evidence_ids')) and refs(explanation.get('evidence_ids')))
     require(report.get('likely_service') is None or text(report.get('likely_service'), 200))
@@ -366,9 +366,18 @@ class JobManager:
                         raise WorkspaceError(str(exc), 403) from None
                     except ValueError:
                         raise WorkspaceError('New AI investigations are paused. Check the hosted model configuration.', 403) from None
+                elif model == 'nebius':
+                    from .nebius import NebiusClient
+                    if self.workspace.context['mode'] != 'sample' or os.environ.get('INCIDENTCOURT_NEBIUS_SAMPLE') != '1':
+                        raise WorkspaceError('Nebius investigations require the explicitly enabled sample path.', 403)
+                    client = NebiusClient.from_env()
+                    if not client.configured or not client.allow_inference:
+                        raise WorkspaceError('Nebius inference is paused or not configured.', 403)
                 identity = self.workspace.reserve(incident_id, key)
                 self.active_id = identity
                 guarded = None
+                if model == 'nebius':
+                    guarded = client
                 if policy is not None:
                     from .hosted_guard import HostedNightshiftClient
                     guarded = HostedNightshiftClient(client, policy, identity)

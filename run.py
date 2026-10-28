@@ -7,12 +7,19 @@ import sys
 
 def main():
     parser=argparse.ArgumentParser(description='IncidentCourt investigation workbench')
-    parser.add_argument('--sample',action='store_true',help='Use bundled real telemetry subset; no network calls')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--sample',action='store_true',help='Use bundled real telemetry subset; no network calls')
+    mode.add_argument('--nebius-sample',action='store_true',help='Use bundled telemetry with explicitly enabled Nebius inference')
     parser.add_argument('--input',help='JSON file containing incident_id and optional model')
     parser.add_argument('--port',type=int,default=8317)
     parser.add_argument('--host',default='127.0.0.1',choices=('127.0.0.1','0.0.0.0'))
     args=parser.parse_args()
-    if args.sample: os.environ['SAMPLE_MODE']='true'
+    if args.sample:
+        os.environ['SAMPLE_MODE']='true'
+        os.environ['INCIDENTCOURT_NEBIUS_SAMPLE']='0'
+    if args.nebius_sample:
+        os.environ['SAMPLE_MODE']='true'
+        os.environ['INCIDENTCOURT_NEBIUS_SAMPLE']='1'
     from incidentcourt.config import ROOT
     from incidentcourt.store import Store,DataError
     from incidentcourt.integrations import IntegrationError

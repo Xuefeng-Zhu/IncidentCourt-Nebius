@@ -145,6 +145,84 @@ class SyntheticInvestigationTest(unittest.TestCase):
             con.execute("INSERT INTO private_answers VALUES ('not agent input')")
         with self.assertRaises(DataError): Store(path=self.path, mode="local").query("Disallowed source", "SELECT value FROM private_answers")
 
+    def test_nebius_sample_uses_shared_citation_validation_and_requires_opt_in(self):
+        from incidentcourt.workspace import validate_report
+        class FixtureProvider:
+            def __init__(self, bad=False): self.calls, self.bad = 0, bad
+            def complete(self, messages, **kwargs):
+                self.calls += 1
+                prompt = json.loads(messages[-1]["content"])
+                if "services" in prompt:
+                    content = {"service":prompt["services"][0], "reason":"Synthetic fixture", "evidence_ids":[prompt["evidence"][0]["id"]]}
+                else:
+                    content = {"summary":"Synthetic bounded assessment", "evidence_ids":["E999" if self.bad else prompt["evidence"][0]["id"]]}
+                return {"content":json.dumps(content), "provider":"nebius-token-factory", "served_model":"fixture-model"}
+        def run(provider):
+            return investigate("IC-001", model="nebius", store=Store(path=self.path, mode="sample"), memory=self.memory, client=provider)
+        with patch.dict("os.environ", {"INCIDENTCOURT_NEBIUS_SAMPLE":"0"}):
+            with self.assertRaisesRegex(DataError, "explicitly enable"): run(FixtureProvider())
+        with patch.dict("os.environ", {"INCIDENTCOURT_NEBIUS_SAMPLE":"1"}):
+            good = FixtureProvider()
+            report = run(good)
+            self.assertEqual(good.calls, 3)
+            self.assertEqual(report["mode"], "sample / nebius")
+            self.assertEqual(validate_report(report)["model"]["mode"], "nebius")
+            with self.assertRaisesRegex(DataError, "unsupported citations"): run(FixtureProvider(bad=True))
+
+    def test_nebius_workspace_flow_uses_real_pipeline_with_fake_transport(self):
+        import threading
+        from incidentcourt.nebius import NebiusClient
+        from incidentcourt.workspace import Workspace, JobManager
+        from tests.test_nebius import MODEL, Reply
+
+        class Transport:
+            def __init__(self, invalid=False): self.invalid, self.calls = invalid, 0
+            def open(self, request, timeout):
+                if request.full_url.endswith('/models'):
+                    return Reply({'data': [{'id': MODEL}]})
+                self.calls += 1
+                body = json.loads(request.data)
+                prompt = json.loads(body['messages'][-1]['content'])
+                if 'services' in prompt:
+                    answer = {'service': prompt['services'][0], 'reason': 'Synthetic fixture', 'evidence_ids': [prompt['evidence'][0]['id']]}
+                else:
+                    answer = {'summary': 'Synthetic assessment', 'evidence_ids': ['E999' if self.invalid else prompt['evidence'][0]['id']]}
+                return Reply({'model': MODEL, 'id': f'fixture-{self.calls}', 'usage': {'completion_tokens': 5}, 'choices': [{'message': {'content': json.dumps(answer)}}]})
+
+        for invalid in (False, True):
+            with self.subTest(invalid=invalid):
+                mode = 'invalid' if invalid else 'valid'
+                context = {'id': mode, 'mode': 'sample', 'label': 'synthetic fixture'}
+                workspace = Workspace(self.root / (mode + '.sqlite3'), context)
+                workspace.cache_cases([{'id':'IC-001', 'title':'synthetic fixture', 'start_ts':0, 'end_ts':90}])
+                transport = Transport(invalid)
+                receipts = self.root / ('calls-' + mode)
+                client = NebiusClient('fixture-secret', MODEL, True, receipts, transport)
+                def runner(incident_id, model, progress, client):
+                    return investigate(incident_id, model=model, store=Store(path=self.path, mode='sample'), memory=self.memory, progress=progress, client=client)
+                manager = JobManager(workspace, threading.Lock(), runner=runner)
+                with patch.dict('os.environ', {'INCIDENTCOURT_NEBIUS_SAMPLE':'1'}), patch('incidentcourt.nebius.NebiusClient.from_env', return_value=client):
+                    identity = manager.start('IC-001', 'fixture-key-' + mode, 'nebius')
+                    thread = manager.threads.get(identity)
+                    if thread: thread.join(10)
+                row = workspace.investigation(identity)
+                self.assertEqual(transport.calls, 3)
+                files = list(receipts.glob('*.json'))
+                self.assertEqual(len(files), 3)
+                self.assertTrue(all(json.loads(p.read_text())['status'] == 'completed' for p in files))
+                self.assertTrue(all('fixture-secret' not in p.read_text() for p in files))
+                if invalid:
+                    self.assertEqual(row['state'], 'failed')
+                    self.assertIsNone(row.get('report'))
+                else:
+                    self.assertEqual(row['state'], 'completed')
+                    report = row['report']
+                    self.assertEqual(report['mode'], 'sample / nebius')
+                    evidence_ids = {item['id'] for item in report['evidence']}
+                    self.assertTrue(set(report['provider_explanation']['evidence_ids']) <= evidence_ids)
+                    self.assertTrue(all(set(step['evidence_ids']) <= evidence_ids for step in report['steps']))
+                    self.assertEqual(len(report['model']['decision_calls']), 2)
+
     def test_provider_answer_with_unknown_citation_is_rejected(self):
         class FixtureProvider:
             def complete(self, messages, **kwargs):

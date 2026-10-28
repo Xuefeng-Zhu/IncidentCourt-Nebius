@@ -8,7 +8,7 @@ function validateSavedRecord(value) {
   const array = (item, maximum) => Array.isArray(item) && item.length <= maximum;
   const id = item => typeof item === 'string' && /^[A-Za-z0-9][A-Za-z0-9:_-]{0,119}$/.test(item);
   if (!object(value) || !/^IC-\d{3}$/.test(value.incident_id || '') || !/^[a-f0-9]{12}$/.test(value.run_id || '')) fail('Choose a completed IncidentCourt JSON record with valid incident and run identifiers.');
-  if (!/^(local|sample|zetaris) \/ (local|nightshift)$/.test(value.mode || '')) fail('The saved record has an unsupported original execution mode.');
+  if (!/^(local|sample|zetaris) \/ (local|nightshift|nebius)$/.test(value.mode || '')) fail('The saved record has an unsupported original execution mode.');
   const [dataMode, modelMode] = value.mode.split(' / ');
   if (!string(value.summary) || !object(value.model) || value.model.mode !== modelMode || !object(value.memory)) fail('The saved record is missing its completed assessment or execution details.');
   if (!string(value.created_at, 80) || Number.isNaN(new Date(value.created_at).getTime())) fail('The saved record has no valid execution timestamp.');
@@ -51,21 +51,21 @@ function validateSavedRecord(value) {
   }
   for (const key of ['supporting_evidence_ids', 'counterevidence_ids']) if (value[key] !== undefined && !references(value[key])) fail('A saved assessment citation does not resolve to its evidence.');
   if (value.counterevidence !== undefined && (!array(value.counterevidence, 100) || value.counterevidence.some(item => !object(item) || !string(item.summary) || !references(item.evidence_ids)))) fail('The saved record has invalid counterevidence.');
-  if (modelMode === 'nightshift' && (!object(value.provider_explanation) || !string(value.provider_explanation.summary) || !references(value.provider_explanation.evidence_ids) || !value.provider_explanation.evidence_ids.length)) fail('The saved Nightshift record is missing its completed, cited explanation.');
+  if (['nightshift', 'nebius'].includes(modelMode) && (!object(value.provider_explanation) || !string(value.provider_explanation.summary) || !references(value.provider_explanation.evidence_ids) || !value.provider_explanation.evidence_ids.length)) fail('The saved model record is missing its completed, cited explanation.');
   if (!string(value.memory.mode, 120) || (value.memory.matches !== undefined && (!array(value.memory.matches, 50) || value.memory.matches.some(match => !object(match) || !object(match.memory || match) || !id((match.memory || match).id))))) fail('The saved record has malformed historical-memory context.');
   return value;
 }
 
 function canExecuteInvestigation(status, model) {
   const provider = status?.model || {};
-  if (status?.data?.mode === 'sample') return model === 'local';
+  if (status?.data?.mode === 'sample') return provider.provider === 'nebius' ? model === 'nebius' && provider.inference_enabled === true : model === 'local';
   if (provider.hosted_only === true && model !== 'nightshift') return false;
   if (model === 'nightshift') return provider.mode === 'configured' && provider.inference_enabled === true;
   return model === 'local';
 }
 
 function canStartWorkspaceInvestigation(status, dataMode) {
-  if (dataMode === 'sample') return true;
+  if (dataMode === 'sample') return status?.model?.provider === 'nebius' ? status.model.inference_enabled === true : true;
   const model = status?.model;
   return dataMode === 'zetaris' && model?.inference_enabled === true && model?.hosted_only === true;
 }
@@ -113,7 +113,7 @@ if (typeof document !== 'undefined') (() => {
   };
   const splitLabel = value => ({ development: 'Development', holdout: 'Holdout', history: 'History' }[value] || value || 'Unspecified');
   const incidentTitle = incident => String(incident.title || '').replace(/\s+incident\s+\d+$/i, '').trim();
-  const modeLabel = value => ({ 'zetaris / nightshift': 'Zetaris + Nightshift', 'local / nightshift': 'Local data + Nightshift', 'sample / local': 'Offline sample + rules', 'local / local': 'Local data + rules', 'zetaris / local': 'Zetaris + rules', nightshift: 'Nightshift', local: 'Deterministic rules' }[value] || value || 'Not recorded');
+  const modeLabel = value => ({ 'zetaris / nightshift': 'Zetaris + Nightshift', 'local / nightshift': 'Local data + Nightshift', 'sample / local': 'Offline sample + rules', 'sample / nebius': 'Sample telemetry + Nebius', 'local / local': 'Local data + rules', 'zetaris / local': 'Zetaris + rules', nightshift: 'Nightshift', nebius: 'Nebius Token Factory', local: 'Deterministic rules' }[value] || value || 'Not recorded');
   const modelLabel = value => String(value || '').startsWith('nvidia/nemotron-3.5-lightning') ? 'NVIDIA Nemotron 3.5 Lightning' : String(value || '').startsWith('nvidia/nemotron-3-super') ? 'NVIDIA Nemotron 3 Super' : value ? `${String(value).split('/')[0]} hosted model` : 'Model not recorded';
   const confidence = value => text(value);
   const normalizeKind = kind => ({ metric: 'metrics', log: 'logs', trace: 'traces' }[String(kind).toLowerCase()] || String(kind).toLowerCase());
@@ -237,7 +237,7 @@ if (typeof document !== 'undefined') (() => {
       const explanation = el('details', 'provider-explanation model-notes');
       const summary = el('summary', 'model-notes-heading', 'Model notes');
       summary.append(el('small', 'model-note-label', 'Unreviewed'));
-      explanation.append(summary, el('p', 'model-note-caption', 'Generated by Nightshift; not independently reviewed.'), el('p', 'model-narrative', report.provider_explanation.summary), evidenceRefs(report.provider_explanation.evidence_ids));
+      explanation.append(summary, el('p', 'model-note-caption', 'Generated by an AI model; not independently reviewed.'), el('p', 'model-narrative', report.provider_explanation.summary), evidenceRefs(report.provider_explanation.evidence_ids));
       panel.append(explanation);
     }
     const columns = el('div', 'report-columns');
@@ -281,7 +281,7 @@ if (typeof document !== 'undefined') (() => {
     const runtime = el('div', 'runtime-note');
     for (const [name, data] of [['Execution', report.model], ['Prior investigations', report.memory]]) {
       const item = el('section', '');
-      item.append(el('h4', '', name), el('p', 'runtime-detail', data ? (name === 'Execution' ? `${report.model?.mode === 'nightshift' ? 'Nightshift' : 'Deterministic rules'}. ${data.detail || ''}` : `H-MEM · ${list(data.matches).length} earlier finding${list(data.matches).length === 1 ? '' : 's'}. ${data.detail || ''}`) : 'No receipt recorded.'));
+      item.append(el('h4', '', name), el('p', 'runtime-detail', data ? (name === 'Execution' ? `${report.model?.mode === 'nightshift' ? 'Nightshift' : report.model?.mode === 'nebius' ? 'Nebius Token Factory' : 'Deterministic rules'}. ${data.detail || ''}` : `H-MEM · ${list(data.matches).length} earlier finding${list(data.matches).length === 1 ? '' : 's'}. ${data.detail || ''}`) : 'No receipt recorded.'));
       if (name === 'Execution' && data?.served_model) item.append(el('p', 'runtime-model', `Served model: ${data.served_model}`));
       if (data && list(data.matches).length) {
         for (const match of data.matches) {
@@ -621,7 +621,7 @@ if (typeof document !== 'undefined') (() => {
   $('save-review').addEventListener('click',saveReview);$('review-jump').addEventListener('click',()=>{$('review-panel').scrollIntoView({behavior:'smooth',block:'start'});$('review-note').focus({preventScroll:true});});
   $('check-connections').addEventListener('click',async()=>{
     $('check-connections').disabled=true;$('check-connections').textContent='Checking…';
-    try{const result=await post('/api/connections/check');const target=clear($('connection-results'));target.hidden=false;target.append(el('h2','','Connection check'),el('p','',`Telemetry: ${result.data.state}. Nightshift: ${result.model.state}${result.model.model_advertised===false?' (configured model not advertised)':''}.`),el('p','muted',`Checked ${date(result.checked_at)}. No inference was sent.`));}
+    try{const result=await post('/api/connections/check');const target=clear($('connection-results'));target.hidden=false;target.append(el('h2','','Connection check'),el('p','',`Telemetry: ${result.data.state}. Model: ${result.model.state}${result.model.model_advertised===false?' (configured model not advertised)':''}.`),el('p','muted',`Checked ${date(result.checked_at)}. No inference was sent.`));}
     catch(error){showError(error);}finally{$('check-connections').disabled=false;$('check-connections').textContent='Check connections';}
   });
   for(const tab of document.querySelectorAll('[data-tab]')){

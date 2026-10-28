@@ -144,7 +144,7 @@ class HTTPBoundaryTests(unittest.TestCase):
                 json.dumps({'incident_id':'IC-001','model':'automatic-fallback'}).encode(),
                 {'Content-Type':'application/json'})
             self.assertEqual(status, 422)
-            self.assertIn('local or nightshift', body['error'])
+            self.assertIn('local, nightshift, or nebius', body['error'])
             self.assertFalse((Path(folder)/'artifacts/runs').exists())
 
 

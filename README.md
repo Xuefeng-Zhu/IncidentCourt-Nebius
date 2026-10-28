@@ -1,6 +1,6 @@
 # IncidentCourt
 
-IncidentCourt is a local workspace for investigating incidents across metrics, logs and distributed traces. It builds and challenges service hypotheses, then presents a timeline, supporting evidence, counterevidence, alternatives and uncertainty. It was built for **Open Agent Hackathon Track 02 — The Agent That Can Explain Why**.
+IncidentCourt is a local workspace for investigating incidents across metrics, logs and distributed traces. It builds and challenges service hypotheses, then presents a timeline, supporting evidence, counterevidence, alternatives and uncertainty. It was originally built for the **Open Agent Hackathon** and is being adapted for the Nebius x NVIDIA Global AI Hackathon.
 
 The bundled sample runs offline with deterministic rules and real, sampled [RCAEval](https://huggingface.co/datasets/phamquiluan/RCAEval) telemetry. An optional live path connects Zetaris, Meterless H-MEM and Nightshift. On October 25, 2026, two command-line investigations passed the documented live verification checks with hosted NVIDIA Nemotron; a saved live report's citations, query trail and JSON export were also checked in the browser. Browser-triggered hosted generation, diagnostic accuracy, production readiness and deployment were not established. See [live verification](docs/LIVE_VERIFICATION.md) for the evidence and limits.
 
@@ -9,8 +9,8 @@ The bundled sample runs offline with deterministic rules and real, sampled [RCAE
 Requires **Python 3.12+** with SQLite and **Node.js 24+**. No pip or npm installation, credentials or network access are needed to run the sample. The bundled fixture contains measured telemetry from controlled experiments; it is not a set of generated incidents or replayed reports.
 
 ```sh
-git clone https://github.com/Xuefeng-Zhu/IncidentCourt.git
-cd IncidentCourt
+git clone https://github.com/Xuefeng-Zhu/IncidentCourt-Nebius.git
+cd IncidentCourt-Nebius
 python3.12 run.py --sample
 ```
 
@@ -38,6 +38,24 @@ curl -s http://127.0.0.1:8317/run \
 ```
 
 `SAMPLE_MODE=true` also selects offline mode. A small SQLite file is restored from the committed fixture without network access. It never calls Zetaris or Nightshift. Sample, full local and live modes have distinct receipts and separate sample memory stores.
+
+## Nebius Token Factory with sample telemetry
+
+The `--nebius-sample` mode combines the bundled RCAEval sample with NVIDIA model inference through Nebius Token Factory. It sends the planner, critic and explanation requests to the fixed Token Factory API, checks that the explicitly configured NVIDIA model is advertised, and rejects a different returned model. Evidence IDs are validated against the investigation. Model-generated explanations remain unreviewed. A provider error fails the investigation rather than silently switching to deterministic rules.
+
+**Status:** this integration has contract tests with a simulated provider. A real Nebius investigation, its cost, and model availability have not yet been verified. `--sample` remains entirely offline and does not use a model. A key and inference opt-in are required for the Nebius mode; merely configuring a key does not authorize inference. Token Factory requests may consume credits or incur charges, so check your account and pricing before enabling them.
+
+Set `NEBIUS_API_KEY` securely in your environment, without committing it. Set `NEBIUS_MODEL` to the exact NVIDIA open-source model ID advertised for your account (for example, `nvidia/nemotron-3-super-120b-a12b` **only if available to you**) and explicitly opt in to inference:
+
+```sh
+export NEBIUS_MODEL='nvidia/nemotron-3-super-120b-a12b' # replace if necessary
+export NEBIUS_ALLOW_INFERENCE=1
+python3.12 run.py --nebius-sample
+```
+
+Open <http://127.0.0.1:8317>, check the connection in Settings, then start an investigation. The model discovery check makes a network request but does not generate text. Each generation writes a private success or failure receipt under ignored `artifacts/private/nebius-calls/`; receipts contain prompts and output and should not be published without review. The client does not include authentication headers or the API key in receipts. Clear `NEBIUS_ALLOW_INFERENCE` or stop the process when finished.
+
+A judge-supplied API key or account may not meet the hackathon's unrestricted-access requirement. The final submission must provide an approved, free-to-judges way to use the qualifying workflow; this local setup alone does not establish that requirement.
 
 ## Documentation
 
