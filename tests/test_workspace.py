@@ -7,7 +7,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from incidentcourt.workspace import Workspace, JobManager, WorkspaceError, validate_report, BOOTSTRAP_LAYERS
+from incidentcourt.workspace import Workspace, JobManager, WorkspaceError, validate_report
 from incidentcourt import server
 from tests.test_store_server import running
 import http.client
@@ -112,29 +112,6 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(self.w.investigation(interrupted)['state'],'interrupted')
         self.assertIsNone(self.w.investigation(interrupted)['report'])
 
-    def test_bootstrap_only_explicit_hash_verified_reports_once(self):
-        root=Path(self.temp.name); directory=root/'artifacts/private/verified';directory.mkdir(parents=True)
-        import hashlib
-        from incidentcourt.workspace import canonical
-        reports={}
-        for phase in ['history','target']:
-            report=fixture_report();report['mode']='zetaris / nightshift';report['model']['mode']='nightshift'
-            report['provider_explanation']={'summary':'Fixture only, not live inference.','evidence_ids':[report['evidence'][0]['id']]}
-            for q in report['queries']:q['backend']='zetaris'
-            if phase=='target':report['run_id']='123456abcdef';report['incident_id']='IC-002'
-            name=phase+'-report.json';(directory/name).write_text(json.dumps(report))
-            reports[phase]={'file':name,'run_id':report['run_id'],'sha256':hashlib.sha256(canonical(report).encode()).hexdigest()}
-        receipt={'status':'passed','policy':{'approved_route':'nvidia/fixture'},'layers':{name:{'state':'passed'} for name in BOOTSTRAP_LAYERS},'reports':reports}
-        path=directory/'receipt.json';path.write_text(json.dumps(receipt))
-        w=Workspace(root/'bootstrap.sqlite3',{'id':'zetaris-fixture','mode':'zetaris','label':'Fixture'})
-        with patch('incidentcourt.workspace.ROOT',root):
-            receipt['reports']['target']['sha256']='0'*64;path.write_text(json.dumps(receipt))
-            w.bootstrap(path,'nvidia/fixture');self.assertEqual(w.investigations(),[])
-            receipt['reports']['target']=reports['target']={**reports['target'],'sha256':hashlib.sha256(canonical(json.loads((directory/'target-report.json').read_text())).encode()).hexdigest()}
-            path.write_text(json.dumps(receipt));w.bootstrap(path,'nvidia/fixture');w.bootstrap(path,'nvidia/fixture')
-        self.assertEqual(len(w.investigations()),2)
-        self.assertTrue(all(not r['reviewed_at'] for r in w.investigations()))
-
 class WorkspaceHTTPTests(unittest.TestCase):
     setUp = WorkspaceTests.setUp
     tearDown = WorkspaceTests.tearDown
@@ -159,12 +136,9 @@ class WorkspaceHTTPTests(unittest.TestCase):
             code,_=request(instance,'POST','/api/investigations/import',fixture_report(),origin='https://untrusted.invalid');self.assertEqual(code,403)
             code,data=request(instance,'POST','/api/investigations/import',fixture_report());self.assertEqual(code,201);self.assertFalse(data['linked'])
             code,_=request(instance,'GET','/api/investigations/../../.env.local');self.assertEqual(code,404)
-        # The same product API must not dispatch an unauthorized hosted run.
-        self.w.context['mode']='zetaris'
-        with patch.object(server,'workspace_service',return_value=(self.w,manager)),patch.object(server.NightshiftClient,'from_env') as factory,running(server.Handler) as instance:
-            factory.return_value.configured=True;factory.return_value.allow_inference=False;factory.return_value.hosted_only=True
-            code,_=request(instance,'POST','/api/investigations',{'incident_id':'IC-002','idempotency_key':'fixture-paused-key-001'})
-            self.assertEqual(code,403)
+        # Removed provider modes are rejected before a workspace job is reserved.
+        with self.assertRaises(WorkspaceError):
+            manager.start('IC-002', 'fixture-removed-key-001', 'nightshift')
 
     def test_legacy_and_background_routes_share_the_execution_lock(self):
         entered, release = threading.Event(), threading.Event()

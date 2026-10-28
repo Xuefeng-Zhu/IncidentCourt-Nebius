@@ -140,11 +140,13 @@ class HTTPBoundaryTests(unittest.TestCase):
 
     def test_unknown_model_fails_closed_without_report_write(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(server, 'ROOT', Path(folder)):
-            status, body = self.call('POST','/api/investigate',
-                json.dumps({'incident_id':'IC-001','model':'automatic-fallback'}).encode(),
-                {'Content-Type':'application/json'})
-            self.assertEqual(status, 422)
-            self.assertIn('local, nightshift, or nebius', body['error'])
+            for model in ('automatic-fallback', 'nightshift'):
+                with self.subTest(model=model):
+                    status, body = self.call('POST','/api/investigate',
+                        json.dumps({'incident_id':'IC-001','model':model}).encode(),
+                        {'Content-Type':'application/json'})
+                    self.assertEqual(status, 422)
+                    self.assertIn('local or nebius', body['error'])
             self.assertFalse((Path(folder)/'artifacts/runs').exists())
 
 

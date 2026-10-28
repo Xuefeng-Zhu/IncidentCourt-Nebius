@@ -2,7 +2,7 @@
 
 IncidentCourt is a local workspace for investigating incidents across metrics, logs and distributed traces. It builds and challenges service hypotheses, then presents a timeline, supporting evidence, counterevidence, alternatives and uncertainty. It was originally built for the **Open Agent Hackathon** and is being adapted for the Nebius x NVIDIA Global AI Hackathon.
 
-The bundled sample runs offline with deterministic rules and real, sampled [RCAEval](https://huggingface.co/datasets/phamquiluan/RCAEval) telemetry. An optional live path connects Zetaris, Meterless H-MEM and Nightshift. On October 25, 2026, two command-line investigations passed the documented live verification checks with hosted NVIDIA Nemotron; a saved live report's citations, query trail and JSON export were also checked in the browser. Browser-triggered hosted generation, diagnostic accuracy, production readiness and deployment were not established. See [live verification](docs/LIVE_VERIFICATION.md) for the evidence and limits.
+The bundled sample runs offline with deterministic rules and real, sampled [RCAEval](https://huggingface.co/datasets/phamquiluan/RCAEval) telemetry. A separate opt-in mode connects the same telemetry to an NVIDIA model on Nebius Token Factory. H-MEM recalls eligible prior observations locally. The Nebius path has simulated-provider tests but has not yet been verified with live inference. See [verification](docs/LIVE_VERIFICATION.md) for the evidence and limits.
 
 ## Run the offline sample
 
@@ -37,7 +37,7 @@ curl -s http://127.0.0.1:8317/run \
   -d '{"incident_id":"IC-001","model":"local"}'
 ```
 
-`SAMPLE_MODE=true` also selects offline mode. A small SQLite file is restored from the committed fixture without network access. It never calls Zetaris or Nightshift. Sample, full local and live modes have distinct receipts and separate sample memory stores.
+`SAMPLE_MODE=true` also selects offline mode. A small SQLite file is restored from the committed fixture without network access. It makes no telemetry or model network calls. Sample, full local and live modes have distinct receipts and separate sample memory stores.
 
 ## Nebius Token Factory with sample telemetry
 
@@ -62,7 +62,7 @@ A judge-supplied API key or account may not meet the hackathon's unrestricted-ac
 | Guide | Contents |
 | --- | --- |
 | [Data and provenance](docs/DATA.md) | RCAEval source, sampling, normalization and leakage boundaries |
-| [Integrations](docs/INTEGRATIONS.md) | H-MEM and Nightshift configuration and verification |
+| [Integrations](docs/INTEGRATIONS.md) | H-MEM and Nebius configuration and verification |
 | [Zetaris data path](docs/ZETARIS.md) | Table preparation, registration and connection details |
 | [Live verification](docs/LIVE_VERIFICATION.md) | Dated execution evidence and its limits |
 | [Implementation overview](docs/IMPLEMENTATION.md) | Components, execution flow and workspace APIs |
@@ -80,7 +80,7 @@ Visuals read the report's saved rows without requesting telemetry or inference. 
 
 Private data is stored in ignored `data/workspace.sqlite3` (including its SQLite sidecars). Run one application-server process per workspace database. The source identity excludes credentials and partitions sample, local, and Zetaris history. Stop the server before copying the database for a simple filesystem backup.
 
-When a valid private verification receipt and its reports are explicitly configured, the live workspace can bootstrap those two hash-verified historical reports as unreviewed history. Those private files are not included in a public clone. The workspace does not scan private directories or index unrelated legacy test outputs. Manually imported JSON snapshots persist in the library, remain visibly unverified/unlinked, and cannot change case-queue status. Original reports remain immutable and exports retain their existing JSON format.
+Manually imported compatible JSON snapshots persist in the library, remain visibly unverified and unlinked, and cannot change case-queue status. The workspace does not automatically load private historical reports. Original reports remain immutable and exports retain their existing JSON format.
 
 New case/history APIs are `/api/cases`, `/api/cases/{id}`, `/api/investigations`, and `/api/investigations/{id}`. POST starts an investigation with `incident_id` and `idempotency_key`; `/api/investigations/{id}/review` saves `note`, `reviewed`, and the current `version`. `/api/investigations/import` accepts a complete report up to 5 MiB. `/api/cases/refresh` and `/api/connections/check` refresh metadata without inference. The CLI and synchronous endpoints remain available for offline execution; hosted browser runs use the guarded workspace endpoint.
 
@@ -93,7 +93,7 @@ The background UI was exercised end to end using isolated offline sample SQL/rul
 3. **Evidence Critic** challenges metric-only explanations. **Investigator** compares span durations, parent/child dependencies and bounded later-window log excerpts. Resource and timing checks can revise the service ranking. Stable or decreasing metrics remain visible as counterevidence.
 4. **Report** preserves query IDs, returned rows, coverage, observed threshold crossings, alternatives and limitations. Only measured development facts with saved evidence receipts enter memory; a guessed diagnosis is not promoted as a verified fact.
 
-Local mode uses transparent deterministic heuristics. Nightshift mode makes separate structured planner, critic and explanation requests. Its planner selects an observed service and its critic selects an actual follow-up query target. Unknown evidence IDs or malformed decisions fail explicitly. Generated prose has reference validation, not automated proof of every causal claim, and remains separately labeled for review. Failed provider calls do not silently become local successes.
+Local mode uses transparent deterministic heuristics. Nebius mode makes separate structured planner, critic and explanation requests. Its planner selects an observed service and its critic selects an actual follow-up query target. Unknown evidence IDs or malformed decisions fail explicitly. Generated prose has reference validation, not automated proof of every causal claim, and remains separately labeled for review. Failed provider calls do not silently become local successes.
 
 ## Data and leakage boundaries
 
@@ -113,41 +113,11 @@ uv pip install --python .venv/bin/python -r requirements-data.txt
 
 See [data provenance](docs/DATA.md) and the manifests under `data/public/`.
 
-## Sponsor connections
+## Integrations and provenance
 
-In the hosted investigation path, each component has a distinct role:
+The bundled Meterless H-MEM reference recalls eligible observations from earlier investigations and can suggest services for fresh queries. Historical memory is a lead, not evidence for the current incident. H-MEM runs locally through Node.js; its reference embedder is deterministic and is not a neural embedding service. See [integrations](docs/INTEGRATIONS.md) for provenance and verification limits.
 
-1. **Zetaris** serves the incident, metric, log and trace tables. The investigator issues bounded SELECT queries and records their results as evidence.
-2. **Meterless H-MEM** recalls eligible findings from earlier investigations. Recalled service names prompt fresh Zetaris queries; historical memory is a lead, not current evidence.
-3. **Nightshift** is the gateway for the planner, critic and explanation requests. The planner chooses an observed service and the critic can direct a follow-up query.
-4. **NVIDIA Nemotron** supplies the hosted model responses through Nightshift. The historical verification used `nvidia/nemotron-3.5-lightning-30b-a3b`; local sample mode uses deterministic rules instead of this model.
-
-The table describes the October 25, 2026 verification, not a guarantee that those services or credentials are currently available:
-
-| Component | Verified layer | Remaining layer |
-| --- | --- | --- |
-| Meterless H-MEM | Official reference recalled history and triggered two actual Zetaris queries; holdout memory unchanged | Full conformance and production engine behavior not claimed |
-| Zetaris | Four native NDP tables, 44,627 real sampled rows, 45 SELECTs with actual query receipts | Broader datasets, production scale and deployment not tested |
-| Nightshift | Six distinct uncached planner/critic/explanation responses across two real investigations | Saved live record browser citation/query/export checks passed; new generation disabled after the approved budget |
-| NVIDIA | Every response named the exact approved `nvidia/nemotron-3.5-lightning-30b-a3b` route through Nightshift | Runtime cost reports do not independently prove account billing |
-
-For optional integrations, configure an existing Zetaris instance and Nightshift gateway. Start with a local settings file, preserving it if one already exists:
-
-```sh
-test -e .env.local || cp .env.example .env.local
-```
-
-Set `SAMPLE_MODE=false`, `INCIDENTCOURT_DATA_MODE=zetaris`, the Zetaris connection and registered table namespace, and the existing Nightshift gateway token and advertised model ID. The H-MEM reference is already vendored and uses Node.js; it does not require a separate hosted memory service. Configure the NVIDIA provider key in Nightshift, not in this repository. Environment variables take precedence over `.env.local` values; keep credentials out of Git.
-
-```sh
-python3.12 -m scripts.check_integrations
-```
-
-This preflight performs read-only discovery and SELECT checks; it does not send inference requests or create resources. Configuring a connection or passing preflight does not itself verify an end-to-end hosted investigation. For registration and live-run prerequisites, see [Zetaris data path](docs/ZETARIS.md) and [Meterless/Nightshift details](docs/INTEGRATIONS.md).
-
-The earlier six-call allowance was consumed. Those responses reported zero estimated cost and 890 output tokens in total; the runtime figures are not an invoice. The receipts do not establish the number or route of every internal model call, including any cross-check or tool loop.
-
-The browser's hosted path requires an explicitly configured NVIDIA Nemotron route and inference opt-in. It retains per-call receipts and checks each returned route and cost estimate. The selected route and its winning-route receipt do not establish which auxiliary models Nightshift may use; those depend on Nightshift's own configuration. Runtime cost estimates cannot guarantee free-credit-only billing. See [live verification](docs/LIVE_VERIFICATION.md) for the evidence and limitations. An NVIDIA key belongs in Nightshift, not this app. `METERLESS_BASE_URL`, `METERLESS_RUNTIME_TOKEN`, and `METERLESS_MODEL` are supported aliases; `NIGHTSHIFT_ALLOW_INFERENCE=1` is only appropriate after provider usage is authorized.
+The optional Nebius mode is described above. The Zetaris adapter and its historical data-path checks are documented in [Zetaris](docs/ZETARIS.md); those historical checks do not establish a live Nebius investigation.
 
 ## Verification
 
@@ -160,7 +130,7 @@ npm test --prefix vendor/meterless-hmem
 
 Tests cover offline restore, units/nulls, query boundaries, missing telemetry, hypothesis revision, H-MEM behavior/exclusion, provider contracts, citation rejection, redirects and HTTP validation. Synthetic test fixtures are labeled and separate from dataset runs. Upstream H-MEM smoke tests cover ten cases; no full conformance claim is made.
 
-The completed live receipt is `artifacts/private/live-flow-20261025-nvidia-01/receipt.json`. History `IC-001` (`3c24d86ae0a5`) produced 14 remote queries and 21 evidence records; target `IC-003` (`99f570d82daa`) produced 16 remote queries and 33 evidence records. All citations resolved. One same-service historical match caused target queries `Q03` and `Q09`; memory membership stayed at two records. See [the live verification record and limits](docs/LIVE_VERIFICATION.md). Private receipts retain real data and provider outputs; they are not committed demo assets.
+Historical verification from the original project and its limits are summarized in [live verification](docs/LIVE_VERIFICATION.md). Those historical provider results do not establish Nebius Token Factory usage in this checkout. Private receipts retain sensitive data and are not committed demo assets.
 
 After importing the larger local dataset, `python3.12 -m scripts.verify_memory_flow` runs the label-blind real-data memory check. It runs cold/history/warm investigations and preserves passing or failed receipts under ignored `artifacts/private/`. Reports are under `artifacts/runs/`; agent/query JSONL traces are under `logs/`. Example outputs never act as canned API responses.
 
@@ -175,4 +145,4 @@ The container defaults to sample mode. Remote adapters require HTTPS. This is a 
 
 ## Event context
 
-The [organizer event page](https://hackathon.genai.works/event/open-agent-hackathon-2026) and signed-in [resources](https://hackathon.genai.works/resources) were checked October 25, 2026. At that time the listed submission deadline was **October 27 at 23:45 UTC (4:45 p.m. Pacific)**, and the requirements included Zetaris, a working Meterless Engine feature, Nightshift as primary AI provider, a 1–4 minute real-running demo, slides and an explanation of sponsor use. Consult the organizer for current requirements and submission status.
+This checkout is being prepared for the [Nebius x NVIDIA Global AI Hackathon](https://nebiusglobalaihackathon.devpost.com/). Consult the event's current requirements and [submission draft](devpost-submission.md) before publication. A live Nebius-backed investigation and judge-accessible build remain to be verified.

@@ -23,7 +23,7 @@ The intended audience is engineers investigating service incidents and reviewers
 3. A structured report links observations to their source rows and recorded queries. The user can review the evidence, alternative explanations, coverage, and observed dependencies.
 4. The user can save a review note and export the report without changing the underlying generated report.
 
-The bundled offline sample is based on anonymized, measured telemetry from controlled RCAEval experiments. It uses deterministic rules and does not call Nebius or any other hosted model. Optional historical integrations include Zetaris, Nightshift, NVIDIA Nemotron, and the vendored Meterless H-MEM reference. Memory can suggest a service to check; fresh telemetry remains responsible for supporting the current assessment.
+The bundled offline sample is based on anonymized, measured telemetry from controlled RCAEval experiments. It uses deterministic rules and does not call Nebius or any other hosted model. The vendored Meterless H-MEM reference recalls eligible observations locally; Zetaris is a separately documented data adapter. Memory can suggest a service to check; fresh telemetry remains responsible for supporting the current assessment.
 
 ### Nebius and NVIDIA integration
 

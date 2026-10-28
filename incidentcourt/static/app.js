@@ -57,17 +57,13 @@ function validateSavedRecord(value) {
 }
 
 function canExecuteInvestigation(status, model) {
-  const provider = status?.model || {};
-  if (status?.data?.mode === 'sample') return provider.provider === 'nebius' ? model === 'nebius' && provider.inference_enabled === true : model === 'local';
-  if (provider.hosted_only === true && model !== 'nightshift') return false;
-  if (model === 'nightshift') return provider.mode === 'configured' && provider.inference_enabled === true;
-  return model === 'local';
+  if (model === 'local') return true;
+  return model === 'nebius' && status?.data?.mode === 'sample' && status?.model?.provider === 'nebius' && status?.model?.inference_enabled === true;
 }
 
 function canStartWorkspaceInvestigation(status, dataMode) {
   if (dataMode === 'sample') return status?.model?.provider === 'nebius' ? status.model.inference_enabled === true : true;
-  const model = status?.model;
-  return dataMode === 'zetaris' && model?.inference_enabled === true && model?.hosted_only === true;
+  return dataMode === 'zetaris' || dataMode === 'local';
 }
 
 // A loaded record wins over a late archive response, including offline imports.

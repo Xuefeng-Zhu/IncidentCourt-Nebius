@@ -2,11 +2,12 @@
 import json
 from incidentcourt.config import ROOT
 from incidentcourt.store import Store,DataError
-from incidentcourt.integrations import HMemStore,NightshiftClient
+from incidentcourt.integrations import HMemStore
+from incidentcourt.nebius import NebiusClient
 
 
 def main():
-    result={'zetaris':{'state':'unverified'},'nightshift':NightshiftClient.from_env().status(probe=True),
+    result={'zetaris':{'state':'unverified'},'nebius':NebiusClient.from_env().probe(),
             'hmem':HMemStore(ROOT/'data/memory').status()}
     try:
         store=Store(mode='zetaris')

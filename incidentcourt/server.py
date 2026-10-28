@@ -3,7 +3,6 @@ import argparse
 import json
 import os
 import re
-from datetime import datetime
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -11,7 +10,7 @@ from urllib.parse import urlparse
 
 from .config import ROOT
 from .store import Store, DataError
-from .integrations import HMemStore, NightshiftClient, IntegrationError
+from .integrations import HMemStore, IntegrationError
 from .investigate import investigate
 from .workspace import Workspace, WorkspaceError, JobManager, source_context, MAX_REPORT_BYTES, now
 
@@ -30,9 +29,6 @@ def workspace_service():
             if str(workspace.path) not in RECOVERED_PATHS:
                 workspace.recover()
                 RECOVERED_PATHS.add(str(workspace.path))
-            model = os.environ.get('NIGHTSHIFT_MODEL', '')
-            if last_verification(model):
-                workspace.bootstrap(os.environ.get('INCIDENTCOURT_VERIFICATION_RECEIPT'), model)
             SERVICES[key] = (workspace, JobManager(workspace, RUN_LOCK))
         return SERVICES[key]
 
@@ -57,76 +53,8 @@ def connection_check():
         probe = client.probe()
         result['model'] = {'state': probe['state'], 'model_advertised': client.model in probe.get('models', [])}
     else:
-        probe = NightshiftClient.from_env().probe()
-        result['model'] = {'state': probe['state'], 'model_advertised': os.environ.get('NIGHTSHIFT_MODEL') in probe.get('models', [])}
+        result['model'] = {'state': 'offline', 'detail': 'Local rules do not use a model.'}
     return result
-
-
-VERIFICATION_LAYERS = (
-    'configuration', 'zetaris_connection', 'application_tables',
-    'history_investigation', 'target_investigation', 'remote_query_provenance',
-    'citations', 'nightshift_execution', 'memory_consumption', 'holdout_isolation',
-)
-
-
-def last_verification(requested_model):
-    """Allowlisted historical proof only; never a current connectivity check.
-
-    The path is explicitly selected in project configuration. No HTTP parameter
-    can select a private file, and no query, prompt, credential or path is returned.
-    """
-    configured = os.environ.get('INCIDENTCOURT_VERIFICATION_RECEIPT', '')
-    if not configured:
-        return None
-    try:
-        path = Path(configured)
-        if not path.is_absolute():
-            path = ROOT / path
-        private = (ROOT / 'artifacts/private').resolve()
-        path = path.resolve(strict=True)
-        if not path.is_relative_to(private) or not path.is_file() or path.stat().st_size > 1024 * 1024:
-            return None
-        with path.open('rb') as source:
-            raw = source.read(1024 * 1024 + 1)
-        if len(raw) > 1024 * 1024:
-            return None
-        value = json.loads(raw)
-        if value.get('status') != 'passed' or value.get('policy', {}).get('approved_route') != requested_model:
-            return None
-        layers = value['layers']
-        if any(layers.get(name, {}).get('state') != 'passed' for name in VERIFICATION_LAYERS):
-            return None
-        if layers.get('expected_sample_counts', {}).get('state') not in ('passed', 'not_requested'):
-            return None
-        execution = layers['nightshift_execution']
-        if execution.get('actual_gateway_calls') != 6 or execution.get('uncached') is not True:
-            return None
-        phases = execution['calls_by_phase']
-        if any(not isinstance(phases.get(phase), list) or len(phases[phase]) != 3 for phase in ('history', 'target')):
-            return None
-        calls = phases['history'] + phases['target']
-        if any(call.get('served_model') != requested_model
-               or call.get('provider') != requested_model.split('/', 1)[0]
-               or call.get('from_cache') is not False
-               or isinstance(call.get('actual_usd'), bool) or call.get('actual_usd') != 0 for call in calls):
-            return None
-        if len({call['receipt_id'] for call in calls}) != 6 or len({call['decision_id'] for call in calls}) != 6:
-            return None
-        reports = value['reports']
-        if any(not re.fullmatch(r'[a-f0-9]{12}', reports[phase].get('run_id', '')) for phase in ('history', 'target')):
-            return None
-        verified_at = value.get('updated_at') or value['created_at']
-        if datetime.fromisoformat(verified_at.replace('Z', '+00:00')).tzinfo is None:
-            return None
-        queries = layers['remote_query_provenance'].get('actual_queries')
-        if not isinstance(queries, int) or isinstance(queries, bool) or queries < 1:
-            return None
-        return {'historical': True, 'verified_at': verified_at,
-                'physical_model': requested_model, 'gateway_calls': 6, 'remote_selects': queries,
-                'history_run_id': reports['history']['run_id'], 'target_run_id': reports['target']['run_id'],
-                'detail': 'Earlier completed verification; current connectivity is not rechecked.'}
-    except (OSError, ValueError, TypeError, KeyError, AttributeError):
-        return None
 
 
 def status():
@@ -136,41 +64,24 @@ def status():
     nebius_sample = sample and os.environ.get('INCIDENTCOURT_NEBIUS_SAMPLE') == '1'
     if nebius_sample:
         from .nebius import NebiusClient
-        client = NebiusClient.from_env()
+        model = NebiusClient.from_env().status()
     else:
-        client = NightshiftClient.from_env()
-    model = client.status()
+        model = {'state': 'not_configured', 'requested_model': None, 'inference_enabled': False, 'hosted_only': False}
     memory = HMemStore(ROOT / ('data/memory-sample' if sample else 'data/memory')).status()
     configured = model.get('state') == 'configured_unverified'
-    enabled = bool((nebius_sample or (not sample and mode == 'zetaris')) and configured and model.get('inference_enabled'))
-    if enabled and not nebius_sample:
-        try:
-            from .hosted_guard import HostedRunPolicy
-            HostedRunPolicy.from_env(client)
-        except (IntegrationError, ValueError, OSError):
-            enabled = False
+    enabled = bool(nebius_sample and configured and model.get('inference_enabled'))
     hosted = model.get('hosted_only') is True
-    if nebius_sample:
-        model_detail = ('Nebius Token Factory configured; inference is explicitly enabled.' if enabled else 'Nebius Token Factory inference is paused or not configured.')
-    elif configured:
-        model_detail = ('Hosted Nightshift model configured' if hosted else 'Nightshift configured')
-        if enabled:
-            model_detail += '; inference is enabled with a pinned winning route. Current connectivity and auxiliary model use are not verified by this status view.'
-        elif model.get('inference_enabled'):
-            model_detail += '; check the hosted NVIDIA model and runtime settings. Saved records remain available.'
-        else:
-            model_detail += '; new inference authorization is off. Open a saved record to review earlier execution.'
-    else:
-        model_detail = 'Nightshift runtime authentication is not configured; generation is unavailable.'
+    model_detail = ('Nebius Token Factory configured; inference is explicitly enabled.' if enabled else
+                    'Nebius Token Factory inference is paused or not configured.') if nebius_sample else 'Local deterministic rules; no model calls.'
     return {'data': {'mode': mode if mode in ('zetaris', 'sample') or db.exists() else 'not_imported',
                      'detail': (('Curated real RCAEval subset with Nebius inference.' if nebius_sample else 'Curated real RCAEval subset; offline sample execution.') if sample else 'Local RCAEval telemetry; Zetaris path not verified.') if mode != 'zetaris' else 'Zetaris selected. Current connectivity is not checked by this status view.'},
             'model': {'mode': 'configured' if configured else 'not_configured', 'detail': model_detail,
                       'inference_enabled': enabled, 'hosted_only': hosted,
-                      'requested_model': model.get('requested_model'), 'provider': 'nebius' if nebius_sample else 'nightshift', 'auxiliary_models_verified': False},
+                      'requested_model': model.get('requested_model'), 'provider': 'nebius' if nebius_sample else 'local', 'auxiliary_models_verified': False},
             'memory': {'mode': 'official-hmem-reference' if memory.get('state') == 'working' else 'unavailable',
                        'detail': 'Official Meterless H-MEM reference; historical context rechecked against current telemetry.',
                        'reference': memory},
-            'last_verified': last_verification(model.get('requested_model')),
+            'last_verified': None,
             'integration_ready': False}
 
 
@@ -268,16 +179,12 @@ class Handler(BaseHTTPRequestHandler):
                     return self.reply(workspace.save_review(review[1], payload.get('note'), payload.get('reviewed'), payload.get('version')))
                 key = payload.get('idempotency_key')
                 if not isinstance(key, str): raise WorkspaceError('An idempotency key is required.')
-                model = ('nebius' if os.environ.get('INCIDENTCOURT_NEBIUS_SAMPLE') == '1' else 'local') if workspace.context['mode'] == 'sample' else 'nightshift'
-                if not workspace.previous_request(key) and model == 'nightshift':
-                    client = NightshiftClient.from_env()
-                    if not client.configured or not client.allow_inference or not client.hosted_only:
-                        raise WorkspaceError('New AI investigations are paused for this workspace. Existing reports and reviews remain available.', 403)
+                model = 'nebius' if workspace.context['mode'] == 'sample' and os.environ.get('INCIDENTCOURT_NEBIUS_SAMPLE') == '1' else 'local'
                 identity = manager.start(payload.get('incident_id'), key, model)
                 return self.reply(workspace.investigation(identity), 202)
             # Hosted execution uses the workspace path with retained receipts.
             # The legacy synchronous endpoint has no equivalent receipt checks.
-            if payload.get('model', 'local') in ('nightshift', 'nebius'):
+            if payload.get('model', 'local') == 'nebius':
                 return self.reply({'error': 'Hosted investigations must use the guarded workspace flow.'}, 403)
             # Existing offline synchronous API remains compatible and shares the same lock.
             if not RUN_LOCK.acquire(blocking=False):

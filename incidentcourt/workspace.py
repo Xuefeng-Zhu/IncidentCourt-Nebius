@@ -16,12 +16,6 @@ from .config import ROOT
 
 MAX_REPORT_BYTES = 5 * 1024 * 1024
 ACTIVE = ('queued', 'running')
-BOOTSTRAP_LAYERS = {'configuration', 'zetaris_connection', 'application_tables',
-                    'expected_sample_counts', 'history_investigation', 'target_investigation',
-                    'remote_query_provenance', 'citations', 'nightshift_execution',
-                    'memory_consumption', 'holdout_isolation'}
-
-
 def now():
     return datetime.now(timezone.utc).isoformat()
 
@@ -268,38 +262,6 @@ CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT);
                        ('completed', 'Completed', len(report['queries']), now(), report['run_id'], digest, serialized, identity))
         return identity
 
-    def bootstrap(self, receipt_path, model):
-        """Once per database: only explicitly configured, hash-verified live reports."""
-        if self.context['mode'] != 'zetaris' or not receipt_path:
-            return
-        with self.db() as db:
-            if db.execute("SELECT 1 FROM metadata WHERE key='verified_bootstrap'").fetchone():
-                return
-        try:
-            path = Path(receipt_path)
-            if not path.is_absolute(): path = ROOT / path
-            path = path.resolve(strict=True)
-            if not path.is_relative_to((ROOT / 'artifacts/private').resolve()) or path.stat().st_size > 1024 * 1024:
-                return
-            receipt = json.loads(path.read_text())
-            if receipt.get('status') != 'passed' or receipt.get('policy', {}).get('approved_route') != model or set(receipt.get('layers', {})) != BOOTSTRAP_LAYERS or any(v.get('state') != 'passed' for v in receipt['layers'].values()):
-                return
-            reports = []
-            for phase in ('history', 'target'):
-                entry = receipt['reports'][phase]
-                if entry['file'] != phase + '-report.json': return
-                source = (path.parent / entry['file']).resolve(strict=True)
-                if source.parent != path.parent or source.stat().st_size > MAX_REPORT_BYTES: return
-                report = validate_report(json.loads(source.read_text()))
-                if report['run_id'] != entry['run_id'] or hashlib.sha256(canonical(report).encode()).hexdigest() != entry['sha256'] or report['mode'] != 'zetaris / nightshift': return
-                reports.append(report)
-            for report in reports:
-                self.save_report(report, origin='verification', linked=True)
-            with self.db() as db:
-                db.execute("INSERT OR IGNORE INTO metadata VALUES('verified_bootstrap',?)", (now(),))
-        except (OSError, ValueError, TypeError, KeyError, AttributeError):
-            return
-
     def previous_request(self, key):
         with self.db() as db:
             row = db.execute('SELECT id FROM investigations WHERE context_id=? AND request_key=?', (self.context['id'], key)).fetchone()
@@ -353,20 +315,10 @@ class JobManager:
             if not self.run_lock.acquire(blocking=False):
                 raise WorkspaceError('An investigation is already running.', 409, investigation_id=self.active_id)
             try:
-                policy = client = None
-                if model == 'nightshift':
-                    from .integrations import NightshiftClient, IntegrationError
-                    from .hosted_guard import HostedRunPolicy
-                    if self.workspace.context['mode'] != 'zetaris':
-                        raise WorkspaceError('Hosted browser investigations require Zetaris.', 403)
-                    try:
-                        client = NightshiftClient.from_env()
-                        policy = HostedRunPolicy.from_env(client)
-                    except IntegrationError as exc:
-                        raise WorkspaceError(str(exc), 403) from None
-                    except ValueError:
-                        raise WorkspaceError('New AI investigations are paused. Check the hosted model configuration.', 403) from None
-                elif model == 'nebius':
+                client = None
+                if model not in ('local', 'nebius'):
+                    raise WorkspaceError('Unsupported model mode.', 403)
+                if model == 'nebius':
                     from .nebius import NebiusClient
                     if self.workspace.context['mode'] != 'sample' or os.environ.get('INCIDENTCOURT_NEBIUS_SAMPLE') != '1':
                         raise WorkspaceError('Nebius investigations require the explicitly enabled sample path.', 403)
@@ -375,12 +327,7 @@ class JobManager:
                         raise WorkspaceError('Nebius inference is paused or not configured.', 403)
                 identity = self.workspace.reserve(incident_id, key)
                 self.active_id = identity
-                guarded = None
-                if model == 'nebius':
-                    guarded = client
-                if policy is not None:
-                    from .hosted_guard import HostedNightshiftClient
-                    guarded = HostedNightshiftClient(client, policy, identity)
+                guarded = client if model == 'nebius' else None
                 thread = threading.Thread(target=self._run, args=(identity, incident_id, model, guarded), daemon=True)
                 self.threads[identity] = thread
                 thread.start()

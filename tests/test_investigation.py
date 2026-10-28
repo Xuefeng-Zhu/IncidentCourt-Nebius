@@ -230,8 +230,8 @@ class SyntheticInvestigationTest(unittest.TestCase):
                 if "services" in prompt:
                     return {"content": json.dumps({"service":prompt["services"][0], "reason":"Declared controller fixture", "evidence_ids":[prompt["evidence"][0]["id"]]})}
                 return {"content": json.dumps({"summary":"Unsupported diagnosis", "evidence_ids":["E999"]})}
-        with patch("incidentcourt.investigate.NightshiftClient.from_env", return_value=FixtureProvider()):
-            with self.assertRaisesRegex(DataError, "unsupported citations"): self.run_investigation(model="nightshift")
+        with patch("incidentcourt.nebius.NebiusClient.from_env", return_value=FixtureProvider()):
+            with self.assertRaisesRegex(DataError, "unsupported citations"): self.run_investigation(model="nebius")
         self.assertEqual(self.memory.status()["memories"], 0)
 
 if __name__ == "__main__": unittest.main()
