@@ -299,8 +299,9 @@ CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT);
 
 
 class JobManager:
-    def __init__(self, workspace, run_lock, runner=None):
+    def __init__(self, workspace, run_lock, runner=None, client_factory=None):
         self.workspace, self.run_lock = workspace, run_lock
+        self.client_factory = client_factory
         if runner is None:
             from .investigate import investigate
             runner = investigate
@@ -329,7 +330,7 @@ class JobManager:
                     from .nebius import NebiusClient
                     if self.workspace.context['mode'] != 'sample' or os.environ.get('INCIDENTCOURT_NEBIUS_SAMPLE') != '1':
                         raise WorkspaceError('Nebius investigations require the explicitly enabled sample path.', 403)
-                    client = NebiusClient.from_env()
+                    client = self.client_factory() if self.client_factory else NebiusClient.from_env()
                     if not client.configured or not client.allow_inference:
                         raise WorkspaceError('Nebius inference is paused or not configured.', 403)
                 identity = self.workspace.reserve(incident_id, key)

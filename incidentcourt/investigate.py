@@ -4,6 +4,7 @@ No ground truth files, injection metadata, shell, web or arbitrary SQL tool is
 available to this loop. Every finding retains the query and returned rows.
 """
 import json
+from pathlib import Path
 import math
 import os
 import uuid
@@ -18,7 +19,7 @@ def safe_number(value):
     return isinstance(value, (int, float)) and math.isfinite(value)
 
 
-def investigate(incident_id, model='local', store=None, memory=None, progress=None, client=None):
+def investigate(incident_id, model='local', store=None, memory=None, progress=None, client=None, output_root=None):
     if model not in ('local', 'nebius'):
         raise DataError('Choose local or nebius model mode.')
     store = store or Store()
@@ -333,11 +334,13 @@ ORDER BY ts LIMIT 1''')
     # Store measured facts only after checking their current query provenance.
     # Held-out cases are never promoted to historical memory.
     emit('Saving findings')
-    receipt_dir=ROOT/'artifacts/runs'
+    private_output = output_root is not None
+    output_root = Path(output_root) if private_output else ROOT
+    receipt_dir=output_root/'artifacts/runs'
     receipt_dir.mkdir(parents=True,exist_ok=True)
     (receipt_dir/(report['run_id']+'.json')).write_text(json.dumps(report,indent=2,allow_nan=False))
     from .receipts import write_trace
-    write_trace(report, ROOT/'logs')
+    write_trace(report, output_root/'logs', print_summary=not private_output)
     if incident.get('split')=='development':
         for row in recall_signals:
             ref=metric_ids[(row['service'],row['name'])]

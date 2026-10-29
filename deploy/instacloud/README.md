@@ -1,0 +1,28 @@
+# InstaCloud judge-hosting preparation
+
+The judge service is a local preparation. No real judge service or judge credential has been deployed, no provider credential has been transferred to InstaCloud, and the hosting preparation has made no real Nebius inference calls. A separate synthetic, provider-free fixture has been exercised remotely; it is not a judge deployment. Platform resources, credential transfer, deployment, and chargeable use require action-time authorization.
+
+## Architecture and controls
+
+The proposed deployment runs one judge gateway process on loopback behind nginx and a trusted HTTPS ingress. It uses the bundled sample, pins the configured NVIDIA model, and keeps the provider key private. Sessions, H-MEM and run workspaces are temporary; the quota ledger and provider receipts require durable private storage. Configure one process and one writer: the run lock is not distributed.
+
+The gateway defaults to bounded lifetime and per-session reservation limits. Set `JUDGE_RUN_LIMIT_MODE=unlimited` explicitly and omit both numeric limits to allow runs without a fixed count cap; reservations and private receipts are still recorded. Neither a ledger nor a run count caps dollar charges, so review actual provider and hosting terms and obtain authorization before any paid use. Unlimited mode also needs storage-capacity monitoring: receipts are not automatically deleted, individual records are bounded, and storage exhaustion can stop future calls.
+
+The gateway authenticates using a private code derived from 32 cryptographically secure random bytes. Its shared proxy login bucket does not limit password guesses; nginx's aggregate rate cap can itself block legitimate users. Before deployment, establish a trusted ingress with tested per-client abuse controls, correct Host and Origin forwarding, TLS and secure cookies, and no direct route to the backend. Do not trust client-supplied forwarding headers. Confirm whether password-protected access satisfies the hackathon's free, unrestricted judge-access rule.
+
+## Persistent state and bootstrap
+
+Use a dedicated, verified persistent volume mounted at `/data`; check its identity, ownership, privacy, locking, capacity, backup, and lifecycle. Set `JUDGE_QUOTA_LEDGER=/data/incidentcourt/quota.sqlite3` and `JUDGE_RECEIPT_DIR=/data/incidentcourt/provider-receipts`. The wrapper rejects absent storage and symlinked receipt paths. Mountpoint detection alone does not prove volume identity or persistence. A missing or replaced ledger or receipt directory is not a reason to initialize a new one; reconcile the failure and any uncertain requests before recovery.
+
+The separate provider-free bootstrap entrypoint `python -m deploy.instacloud.bootstrap --initialize-new-volume` performs one-time, non-serving initialization of a new volume under the service UID. It rejects provider and judge credentials, root execution, a missing mount, and pre-existing state. It does not automatically initialize at startup or through HTTP. An interrupted partial initialization requires inspection and an approved recovery plan. Before actual use, verify the platform can run this entrypoint on the intended volume as UID 10001 without public routing or credentials. Service/volume creation, initialization, secret transfer, and the judge deployment require their respective approvals.
+
+Provider records are synced before dispatch with `unknown` status and atomically updated. Unknown includes interrupted calls and requests that may not have reached the provider. Receipts contain potentially sensitive prompts and outputs; keep them outside HTTP/static routes and arrange secure capacity, backup, retention, and recovery. Validate durability on the actual platform, including restarts and any sleep/wake or redeploy.
+
+## What has been verified
+
+- **Local tests:** The hosted-preparation suite, including the separate synthetic fixture, passed 145 tests; the submission checkout suite passed 135 tests. The main judge image was built and run locally with network and credentials absent. Its sample was readable by UID 10001, `nginx -t` passed, missing required volume/ledger/credentials failed startup, and an initialized ledger survived a container restart. The separate real-service bootstrap image was also built and tested locally without provider credentials or inference.
+- **Remote synthetic fixture:** a separate fixture with synthetic data and no provider calls was manually stopped and started; its ledger persisted. This does not verify automatic idle sleep/wake, the real judge image, trusted ingress, hosted secret handling, or live inference.
+
+The prepared `Dockerfile`, `start.py`, and `nginx.conf.template` run nginx on port 8080 and the backend on loopback port 8317. The wrapper requires an HTTPS `JUDGE_ORIGIN`, positive `JUDGE_EDGE_RPS` and `JUDGE_EDGE_BURST`, verified storage paths, and the settings listed in [judge gateway preparation](../../docs/JUDGE_HOSTING_PREPARATION.md). The backend removes its environment secrets before starting H-MEM, and nginx receives neither secret; the platform and privileged or same-UID processes may still be able to access initial environment values.
+
+InstaCloud's [pricing](https://www.instacloud.com/pricing) and [changelog](https://www.instacloud.com/changelog) describe plan and storage behavior; verify the selected account, costs, actual volume, networking, UID ownership, ingress, and lifecycle at action time. Local and synthetic tests are not evidence of zero billing, a working public judge URL, or event eligibility. Inspect the actual platform's automatic sleep/wake behavior and secure storage before claiming either works.

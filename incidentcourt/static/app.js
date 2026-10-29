@@ -392,7 +392,20 @@ if (typeof document !== 'undefined') (() => {
     }
   }
 
+  function showSessionEnded() {
+    state.sessionEnded = true;
+    $('error-title').textContent = 'Judge session ended';
+    const message = $('error-message');
+    message.textContent = 'The session may have expired or the service may have restarted. Earlier results may be unavailable and an interrupted run may have used provider credits. No run will restart automatically. ';
+    const signIn = el('a', 'text-link', 'Sign in again');
+    signIn.href = '/';
+    message.append(signIn);
+    $('dismiss-error').hidden = true;
+    $('error-banner').hidden = false;
+  }
+
   async function request(url, options = {}) {
+    if (state.sessionEnded) throw new Error('Judge session ended.');
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 45000);
     try {
@@ -400,18 +413,27 @@ if (typeof document !== 'undefined') (() => {
       const body = await response.json().catch(() => ({}));
       if (!response.ok) {
         const error = new Error(body.error || 'The workspace could not complete this request.');
-        error.details = body; error.status = response.status; throw error;
+        error.details = body; error.status = response.status;
+        if (response.status === 401 && document.body.dataset.judgeMode === 'true') showSessionEnded();
+        throw error;
       }
       return body;
     } catch (error) {
-      if (error.name === 'AbortError') throw new Error('The request timed out. Saved work is retained.');
+      if (error.name === 'AbortError') throw new Error(document.body.dataset.judgeMode === 'true' ? 'The request timed out. Its outcome may be unknown; no automatic retry was sent.' : 'The request timed out. Saved work is retained.');
       throw error;
     } finally { clearTimeout(timeout); }
   }
   const post = (url, value = {}) => request(url, {method:'POST', body:JSON.stringify(value)});
   function showError(error) {
+    if (state.sessionEnded) { showSessionEnded(); return; }
+    $('dismiss-error').hidden = false;
     $('error-title').textContent = 'Could not complete this action';
     $('error-message').textContent = error.message || 'Workspace unavailable.';
+    if (document.body.dataset.judgeMode === 'true' && error.status === 404 && state.route.startsWith('/investigations/')) {
+      $('error-title').textContent = 'Investigation unavailable in this session';
+      $('error-message').textContent = 'Earlier temporary results may have been lost after a restart or session expiry. No investigation has been restarted. ';
+      $('error-message').append(link('Return to incidents', '/incidents'));
+    }
     $('error-banner').hidden = false;
   }
   function link(label, route, className = 'text-link') {
@@ -530,6 +552,7 @@ if (typeof document !== 'undefined') (() => {
     if(earlier){const details=el('details','case-metadata');details.append(el('summary','','Earlier live verification'),el('p','muted',`${date(earlier.verified_at)} · ${earlier.gateway_calls} hosted calls · ${earlier.remote_selects} SELECTs. This is historical proof, not a current connection check.`));target.append(details);}
   }
   async function route() {
+    if (state.sessionEnded) { showSessionEnded(); return; }
     const requested=location.hash.slice(1)||'/incidents';
     if(state.dirty && requested!==state.route && !window.confirm('Discard unsaved review changes?')){history.replaceState(null,'','#'+state.route);return;}
     state.dirty=false;state.route=requested;state.current=null;state.report=null;const token=++state.routeToken;
@@ -587,7 +610,7 @@ if (typeof document !== 'undefined') (() => {
   }
   let polling=false;
   async function poll() {
-    if(polling||document.hidden)return;polling=true;
+    if(polling||document.hidden||state.sessionEnded)return;polling=true;
     try{
       if(state.current&&['queued','running'].includes(state.current.state)){
         const identity=state.current.id, token=state.routeToken;
@@ -599,7 +622,7 @@ if (typeof document !== 'undefined') (() => {
         else if(state.route==='/investigations'){await loadRuns();renderLibrary();}
         else if(state.route.startsWith('/incidents/'))await renderCase(state.caseId,state.routeToken);
       }
-    }catch(error){if(state.current&&['queued','running'].includes(state.current.state))$('run-query-count').textContent='Connection interrupted. Checking again; the run will not be restarted.';}
+    }catch(error){if(!state.sessionEnded&&state.current&&['queued','running'].includes(state.current.state))$('run-query-count').textContent='Connection interrupted. Checking again; the run will not be restarted.';}
     finally{polling=false;}
   }
   $('case-search').addEventListener('input',renderQueue);$('case-status').addEventListener('change',renderQueue);

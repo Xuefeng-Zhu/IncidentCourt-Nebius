@@ -8,7 +8,7 @@ The bundled sample runs offline with deterministic rules and real, sampled [RCAE
 
 ## Run the offline sample
 
-Requires **Python 3.12+** with SQLite and **Node.js 24+**. No pip or npm installation, credentials or network access are needed to run the sample. The bundled fixture contains measured telemetry from controlled experiments; it is not a set of generated incidents or replayed reports. The submission repository is currently private, so cloning requires authorized GitHub access; public release is pending approval.
+Requires **Python 3.12+** with SQLite and **Node.js 24+**. No pip or npm installation, credentials or network access are needed to run the sample. The bundled fixture contains measured telemetry from controlled experiments; it is not a set of generated incidents or replayed reports.
 
 ```sh
 git clone https://github.com/Xuefeng-Zhu/IncidentCourt-Nebius.git
@@ -67,6 +67,7 @@ A judge-supplied API key or account may not meet the hackathon's unrestricted-ac
 | [Integrations](docs/INTEGRATIONS.md) | H-MEM and Nebius configuration and verification |
 | [Zetaris data path](docs/ZETARIS.md) | Table preparation, registration and connection details |
 | [Live verification](docs/LIVE_VERIFICATION.md) | Dated execution evidence and its limits |
+| [Judge gateway preparation](docs/JUDGE_HOSTING_PREPARATION.md) | Prepared hosted-mode controls, verification and remaining deployment work |
 | [Implementation overview](docs/IMPLEMENTATION.md) | Components, execution flow and workspace APIs |
 | [Handoff](docs/HANDOFF.md) | Project status and development context |
 
@@ -147,4 +148,4 @@ The container defaults to sample mode. Remote adapters require HTTPS. This is a 
 
 ## Event context
 
-This checkout is being prepared for the [Nebius x NVIDIA Global AI Hackathon](https://nebiusglobalaihackathon.devpost.com/). Consult the event's current requirements and [submission draft](devpost-submission.md) before publication. A judge-accessible build and public demo video remain to be prepared.
+The [Nebius x NVIDIA Global AI Hackathon](https://nebiusglobalaihackathon.devpost.com/) entry includes a [public demonstration](https://youtu.be/AXyv-4xRrsc) and a [downloadable judge build](https://github.com/Xuefeng-Zhu/IncidentCourt-Nebius/releases/tag/v0.1.0-judge). The build includes the offline sample and a sanitized saved Nebius report; a new Nebius investigation requires an API key. Hosted judge access is being prepared and has not yet been deployed. Consult the event rules and [submission draft](devpost-submission.md) for requirements.
