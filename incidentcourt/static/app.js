@@ -397,9 +397,9 @@ if (typeof document !== 'undefined') (() => {
     $('error-title').textContent = 'Judge session ended';
     const message = $('error-message');
     message.textContent = 'The session may have expired or the service may have restarted. Earlier results may be unavailable and an interrupted run may have used provider credits. No run will restart automatically. ';
-    const signIn = el('a', 'text-link', 'Sign in again');
-    signIn.href = '/';
-    message.append(signIn);
+    const recovery = el('a', 'text-link', document.body.dataset.judgePublic === 'true' ? 'Start a new session' : 'Sign in again');
+    recovery.href = '/';
+    message.append(recovery);
     $('dismiss-error').hidden = true;
     $('error-banner').hidden = false;
   }

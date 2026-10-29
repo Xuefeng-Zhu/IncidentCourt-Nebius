@@ -13,7 +13,7 @@ from unittest.mock import patch
 from urllib.parse import urlencode
 from http.server import ThreadingHTTPServer
 
-from incidentcourt.judge_server import JudgeState, JudgeHandler, MODEL, Quota, read_credential, load_credentials, valid_access_code, run_limits
+from incidentcourt.judge_server import JudgeState, JudgeHandler, MODEL, Quota, read_credential, load_credentials, valid_access_code, run_limits, access_mode
 from incidentcourt.nebius import NebiusClient
 from incidentcourt.sample import ensure_sample_db
 from incidentcourt.config import ROOT
@@ -87,6 +87,83 @@ class JudgeTests(unittest.TestCase):
         status, _, cookie = self.request('POST','/login',{'code':CODE},form=True)
         self.assertEqual(status, 303); self.assertIn('HttpOnly', cookie); self.assertIn('SameSite=Strict', cookie)
         return cookie.split(';')[0]
+
+    def use_public_mode(self):
+        self.state.close()
+        self.origin = 'https://judge.example.test'
+        self.state = JudgeState(self.origin, None, Path(self.tmp.name)/'quota.sqlite3', None, None,
+                                5, 600, 20, 60, provider_token='fixture-secret',
+                                provider_receipt_directory=self.receipt_directory, access_mode='public')
+        self.server.judge = self.state
+
+    def test_access_mode_is_explicit_and_provider_credentials_remain_private(self):
+        self.assertEqual(access_mode({}), 'code')
+        self.assertEqual(access_mode({'JUDGE_ACCESS_MODE':'public'}), 'public')
+        with self.assertRaises(ValueError): access_mode({'JUDGE_ACCESS_MODE':'other'})
+        with self.assertRaises(ValueError): load_credentials({'NEBIUS_API_KEY':'fixture-secret'})
+        env = {'NEBIUS_API_KEY':'fixture-secret'}
+        self.assertEqual(load_credentials(env, 'public'), (None, 'fixture-secret'))
+        self.assertEqual(env, {})
+        folder = Path(self.tmp.name)/'credentials'; folder.mkdir()
+        (folder/'nebius_api_key').write_text('file-token')
+        self.assertEqual(load_credentials({'CREDENTIALS_DIRECTORY':str(folder)}, 'public'), (None, 'file-token'))
+        with self.assertRaises(ValueError): load_credentials({'CREDENTIALS_DIRECTORY':str(folder)})
+
+    def test_public_sessions_are_explicit_isolated_and_never_dispatch_on_open(self):
+        self.use_public_mode()
+        status, page, cookie = self.request('GET','/')
+        self.assertEqual(status,200); self.assertIn(b'Open demo',page)
+        self.assertNotIn(b'Access code',page); self.assertIsNone(cookie)
+        self.assertEqual(self.request('GET','/api/cases')[0],401)
+        self.assertEqual(self.request('POST','/session',{'start':'1'},origin=False,form=True)[0],403)
+        self.assertEqual(self.request('POST','/session',{'start':'1'},host='evil.example',form=True)[0],403)
+        self.assertEqual(self.request('POST','/session',{'start':'1'},form=False)[0],415)
+        self.assertEqual(self.request('POST','/session',{'unexpected':'1'},form=True)[0],400)
+        self.assertEqual(self.request('POST','/login',{'code':CODE},form=True)[0],403)
+        cookies = []
+        for _ in range(2):
+            status, _, cookie = self.request('POST','/session',{'start':'1'},form=True)
+            self.assertEqual(status,303)
+            self.assertIn('HttpOnly',cookie); self.assertIn('SameSite=Strict',cookie); self.assertIn('Secure',cookie)
+            cookies.append(cookie.split(';')[0])
+        self.assertNotEqual(*cookies)
+        for cookie in cookies:
+            status, body, _ = self.request('GET','/',cookie=cookie)
+            self.assertEqual(status,200); self.assertIn(b'data-judge-public="true"',body)
+            self.assertNotIn(b'fixture-secret',body)
+            self.assertEqual(self.request('GET','/api/cases',cookie=cookie)[0],200)
+        first = self.state.sessions[cookies[0].split('=',1)[1]]
+        identity = first['workspace'].reserve('IC-001', 'fixture-isolation-key-0001')
+        self.assertEqual(self.request('GET','/api/investigations/'+identity,cookie=cookies[0])[0],200)
+        self.assertEqual(self.request('GET','/api/investigations/'+identity,cookie=cookies[1])[0],404)
+        status, _, same_cookie = self.request('POST','/session',{'start':'1'},cookie=cookies[0],form=True)
+        self.assertEqual(status,303); self.assertEqual(same_cookie.split(';')[0],cookies[0])
+        self.assertEqual(len(self.state.sessions),2)
+        self.assertEqual(self.clients,[]); self.assertEqual(list(self.receipt_directory.iterdir()),[])
+        with sqlite3.connect(Path(self.tmp.name)/'quota.sqlite3') as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM reservations').fetchone()[0],0)
+
+    def test_health_probes_never_create_sessions_or_call_provider(self):
+        self.use_public_mode()
+        for _ in range(20):
+            status, body, cookie = self.request('GET','/_internal_ready')
+            self.assertEqual(status,200); self.assertEqual(json.loads(body),{'ready':True}); self.assertIsNone(cookie)
+        self.assertEqual(self.request('GET','/_internal_ready',host='evil.example')[0],403)
+        self.assertEqual(self.state.sessions,{})
+        self.assertEqual(self.clients,[]); self.assertEqual(list(self.receipt_directory.iterdir()),[])
+
+    def test_public_session_setup_failure_is_sanitized_and_cleans_partial_workspace(self):
+        self.use_public_mode()
+        with patch('incidentcourt.judge_server.Workspace', side_effect=RuntimeError('fixture-secret')):
+            status, body, cookie = self.request('POST','/session',{'start':'1'},form=True)
+        self.assertEqual(status,503); self.assertNotIn(b'fixture-secret',body); self.assertIsNone(cookie)
+        self.assertEqual(list(self.state.root.iterdir()),[])
+        self.assertEqual(self.state.sessions,{}); self.assertEqual(self.clients,[])
+
+    def test_passwordless_session_route_disabled_by_default(self):
+        self.assertEqual(self.state.access_mode,'code')
+        self.assertEqual(self.request('POST','/session',{'start':'1'},form=True)[0],403)
+        self.assertEqual(self.state.sessions,{})
 
     def test_access_code_format_requires_canonical_32_byte_encoding(self):
         self.assertTrue(valid_access_code(CODE))

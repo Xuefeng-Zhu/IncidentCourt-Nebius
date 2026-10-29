@@ -6,6 +6,8 @@ The bundled sample runs offline with deterministic rules and real, sampled [RCAE
 
 [Watch the demo](https://youtu.be/AXyv-4xRrsc) for a walkthrough of the investigation and its evidence. The app footage reviews a saved run.
 
+The [hosted judge service](https://prod-main-judge-805a4e-005j020q19j.compute.instacloud-edge.com/) uses a server-side Nebius API key, so judges do not need their own key. One investigation can run at a time and sessions are temporary. The October 29 hosted test used code-protected access; passwordless entry is available as a deployment mode.
+
 ## Run the offline sample
 
 Requires **Python 3.12+** with SQLite and **Node.js 24+**. No pip or npm installation, credentials or network access are needed to run the sample. The bundled fixture contains measured telemetry from controlled experiments; it is not a set of generated incidents or replayed reports.
@@ -55,9 +57,9 @@ export NEBIUS_ALLOW_INFERENCE=1
 python3.12 run.py --nebius-sample
 ```
 
-Open <http://127.0.0.1:8317>, check the connection in Settings, then start an investigation. The model discovery check makes a network request but does not generate text. Each generation writes a private success or failure receipt under ignored `artifacts/private/nebius-calls/`; receipts contain prompts and output and should not be published without review. The client does not include authentication headers or the API key in receipts. Clear `NEBIUS_ALLOW_INFERENCE` or stop the process when finished.
+Open <http://127.0.0.1:8317>, check the connection in Settings, then start an investigation. The model discovery check makes a network request but does not generate text. Each generation writes a private success or failure receipt; receipts contain prompts and output and should not be published without review. The client does not include authentication headers or the API key in receipts. Clear `NEBIUS_ALLOW_INFERENCE` or stop the process when finished.
 
-A judge-supplied API key or account may not meet the hackathon's unrestricted-access requirement. The final submission must provide an approved, free-to-judges way to use the qualifying workflow; this local setup alone does not establish that requirement.
+The hosted judge service supplies the provider integration, so judges do not need their own API key. Public entry allows visitors to initiate provider requests, which can incur charges for the operator.
 
 ## Documentation
 
@@ -67,7 +69,7 @@ A judge-supplied API key or account may not meet the hackathon's unrestricted-ac
 | [Integrations](docs/INTEGRATIONS.md) | H-MEM and Nebius configuration and verification |
 | [Zetaris data path](docs/ZETARIS.md) | Table preparation, registration and connection details |
 | [Live verification](docs/LIVE_VERIFICATION.md) | Dated execution evidence and its limits |
-| [Judge gateway preparation](docs/JUDGE_HOSTING_PREPARATION.md) | Prepared hosted-mode controls, verification and remaining deployment work |
+| [Judge gateway preparation](docs/JUDGE_HOSTING_PREPARATION.md) | Hosted-mode controls and verification |
 | [Implementation overview](docs/IMPLEMENTATION.md) | Components, execution flow and workspace APIs |
 | [Handoff](docs/HANDOFF.md) | Project status and development context |
 
@@ -87,7 +89,7 @@ Manually imported compatible JSON snapshots persist in the library, remain visib
 
 New case/history APIs are `/api/cases`, `/api/cases/{id}`, `/api/investigations`, and `/api/investigations/{id}`. POST starts an investigation with `incident_id` and `idempotency_key`; `/api/investigations/{id}/review` saves `note`, `reviewed`, and the current `version`. `/api/investigations/import` accepts a complete report up to 5 MiB. `/api/cases/refresh` and `/api/connections/check` refresh metadata without inference. The CLI and synchronous endpoints remain available for offline execution; hosted browser runs use the guarded workspace endpoint.
 
-The background UI was exercised with offline sample SQL/rules, including navigation and reload during a gated QA run. A separate October 27 browser-started run exercised the live Nebius path with sample telemetry; see [verification](docs/LIVE_VERIFICATION.md) for the evidence and limits.
+The background UI was exercised with offline sample SQL/rules, including navigation and reload during a gated QA run. An October 27 browser-started run exercised live Nebius with sample telemetry. An October 29 HTTPS API-driven run verified the judge service in code-protected mode; that test did not exercise the hosted browser flow. See [verification](docs/LIVE_VERIFICATION.md) for details and limits.
 
 ## Investigation behavior
 
@@ -135,9 +137,9 @@ Tests cover offline restore, units/nulls, query boundaries, missing telemetry, h
 
 The current checkout’s live Nebius run and the original project’s separate historical verification are summarized in [live verification](docs/LIVE_VERIFICATION.md). The live run’s sanitized summary and provider receipts are private, ignored artifacts; raw receipts contain prompts and outputs and are not committed demo assets.
 
-After importing the larger local dataset, `python3.12 -m scripts.verify_memory_flow` runs the label-blind real-data memory check. It runs cold/history/warm investigations and preserves passing or failed receipts under ignored `artifacts/private/`. Reports are under `artifacts/runs/`; agent/query JSONL traces are under `logs/`. Example outputs never act as canned API responses.
+After importing the larger local dataset, `python3.12 -m scripts.verify_memory_flow` runs the label-blind real-data memory check. It runs cold/history/warm investigations and preserves passing or failed private receipts and traces. Example outputs never act as canned API responses.
 
-Docker packaging is provided, but **has not been built or run here** because the Docker daemon is unavailable:
+The following Docker commands build and run the ordinary offline sample image:
 
 ```sh
 docker build -t incidentcourt .
@@ -148,4 +150,4 @@ The container defaults to sample mode. Remote adapters require HTTPS. This is a 
 
 ## Event context
 
-The [Nebius x NVIDIA Global AI Hackathon](https://nebiusglobalaihackathon.devpost.com/) entry includes a [public demonstration](https://youtu.be/AXyv-4xRrsc) and a [downloadable judge build](https://github.com/Xuefeng-Zhu/IncidentCourt-Nebius/releases/tag/v0.1.0-judge). The build includes the offline sample and a sanitized saved Nebius report; a new Nebius investigation requires an API key. Hosted judge access is being prepared and has not yet been deployed. Consult the event rules and [submission draft](devpost-submission.md) for requirements.
+The [Nebius x NVIDIA Global AI Hackathon](https://nebiusglobalaihackathon.devpost.com/) entry includes a [public demonstration](https://youtu.be/AXyv-4xRrsc), a [downloadable judge build](https://github.com/Xuefeng-Zhu/IncidentCourt-Nebius/releases/tag/v0.1.0-judge), and a deployed judge service linked above. The downloadable build is an earlier-revision offline build with a sanitized saved Nebius report; running a new local Nebius investigation requires an API key. The hosting Free plan may pause the service when credit is exhausted, and real-service automatic idle wake had not been tested as of October 29. Consult the event rules and [submission draft](devpost-submission.md) for requirements.

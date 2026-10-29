@@ -80,15 +80,25 @@ def read_credential(directory, name):
         raise ValueError('A required service credential is missing or invalid') from None
 
 
-def load_credentials(env):
+def access_mode(env):
+    mode = env.get('JUDGE_ACCESS_MODE', 'code')
+    if mode not in ('code', 'public'):
+        raise ValueError('Invalid judge access mode')
+    return mode
+
+
+def load_credentials(env, mode='code'):
     directory = env.get('CREDENTIALS_DIRECTORY')
     code = env.pop('JUDGE_ACCESS_CODE', None)
     token = env.pop('NEBIUS_API_KEY', None)
+    if mode not in ('code', 'public'):
+        raise ValueError('Invalid judge access mode')
     if directory:
-        return read_credential(directory, 'judge_access_code'), read_credential(directory, 'nebius_api_key')
-    if not code:
+        return (read_credential(directory, 'judge_access_code') if mode == 'code' else None,
+                read_credential(directory, 'nebius_api_key'))
+    if mode == 'code' and not code:
         raise ValueError('A judge access credential is required')
-    return code, token or ''
+    return (code if mode == 'code' else None), token or ''
 
 
 def clean(value):
@@ -114,13 +124,15 @@ class GuardedClient:
 
 
 class JudgeState:
-    def __init__(self, origin, code, ledger, maximum, per_session, max_sessions, lifetime, login_attempts, login_window, client_factory=None, runner=None, provider_token=None, provider_receipt_directory=None):
+    def __init__(self, origin, code, ledger, maximum, per_session, max_sessions, lifetime, login_attempts, login_window, client_factory=None, runner=None, provider_token=None, provider_receipt_directory=None, access_mode='code'):
         parsed = urlparse(origin)
         if (parsed.scheme not in ('https', 'http') or not parsed.hostname or parsed.username or parsed.password
             or parsed.path or parsed.params or parsed.query or parsed.fragment
             or (parsed.scheme == 'http' and parsed.hostname not in ('127.0.0.1', 'localhost'))):
             raise ValueError('Origin must be HTTPS, or HTTP on localhost for testing')
-        if not valid_access_code(code):
+        if access_mode not in ('code', 'public'):
+            raise ValueError('Invalid judge access mode')
+        if access_mode == 'code' and not valid_access_code(code):
             raise ValueError('Judge access code must be a URL-safe encoding of 32 securely generated random bytes')
         if os.environ.get('SAMPLE_MODE') != 'true' or os.environ.get('INCIDENTCOURT_NEBIUS_SAMPLE') != '1':
             raise ValueError('Judge mode requires explicitly enabled sample telemetry and Nebius mode')
@@ -141,7 +153,7 @@ class JudgeState:
             self.provider_receipt_identity = (receipt_stat.st_dev, receipt_stat.st_ino)
         self.max_provider_receipts = 3 * maximum if maximum is not None else None
         self.origin, self.host, self.secure = origin, parsed.netloc, parsed.scheme == 'https'
-        self.code = code
+        self.code, self.access_mode = code, access_mode
         self.quota = Quota(ledger, maximum, per_session)
         self.max_sessions, self.lifetime = max_sessions, lifetime
         self.login_attempts, self.login_window = login_attempts, login_window
@@ -174,6 +186,8 @@ class JudgeState:
     def authenticate(self, address, supplied):
         with self.lock:
             self.cleanup()
+            if self.access_mode != 'code':
+                return None
             # A proxy can make all visitors share one address. Compare before
             # consulting the bucket so invalid traffic cannot lock out a judge
             # holding the correct high-entropy code. The bucket does not bound
@@ -187,26 +201,40 @@ class JudgeState:
                 if len(attempts) < self.login_attempts:
                     attempts.append(time.monotonic())
                 return None
-            token = secrets.token_urlsafe(32)
-            directory = self.root / secrets.token_hex(16)
-            directory.mkdir(mode=0o700)
+            return self._new_session()
+
+    def open_public_session(self):
+        with self.lock:
+            self.cleanup()
+            if self.access_mode != 'public' or len(self.sessions) >= self.max_sessions:
+                return None
+            return self._new_session()
+
+    def _new_session(self):
+        token = secrets.token_urlsafe(32)
+        directory = self.root / secrets.token_hex(16)
+        directory.mkdir(mode=0o700)
+        try:
             workspace = Workspace(directory / 'workspace.sqlite3', source_context())
             workspace.cache_cases(Store().incidents())
-            def run(iid, **kwargs):
-                kwargs['memory'] = HMemStore(directory / 'memory')
-                kwargs['output_root'] = directory
-                return (self.runner or investigate)(iid, **kwargs)
-            def client():
-                if self.client_factory:
-                    return GuardedClient(self.client_factory(directory))
-                return GuardedClient(NebiusClient(self.provider_token, MODEL, True, self.provider_receipt_directory,
-                                                  durable_receipts=True, max_receipts=self.max_provider_receipts,
-                                                  expected_receipt_identity=self.provider_receipt_identity,
-                                                  unlimited_receipts=self.max_provider_receipts is None))
-            manager = JobManager(workspace, self.run_lock, runner=run, client_factory=client)
-            self.sessions[token] = {'workspace': workspace, 'manager': manager, 'directory': directory,
-                                    'expires': time.monotonic() + self.lifetime}
-            return token
+        except Exception:
+            shutil.rmtree(directory, ignore_errors=True)
+            raise
+        def run(iid, **kwargs):
+            kwargs['memory'] = HMemStore(directory / 'memory')
+            kwargs['output_root'] = directory
+            return (self.runner or investigate)(iid, **kwargs)
+        def client():
+            if self.client_factory:
+                return GuardedClient(self.client_factory(directory))
+            return GuardedClient(NebiusClient(self.provider_token, MODEL, True, self.provider_receipt_directory,
+                                              durable_receipts=True, max_receipts=self.max_provider_receipts,
+                                              expected_receipt_identity=self.provider_receipt_identity,
+                                              unlimited_receipts=self.max_provider_receipts is None))
+        manager = JobManager(workspace, self.run_lock, runner=run, client_factory=client)
+        self.sessions[token] = {'workspace': workspace, 'manager': manager, 'directory': directory,
+                                'expires': time.monotonic() + self.lifetime}
+        return token
 
     def session(self, token):
         with self.lock:
@@ -258,10 +286,15 @@ class JudgeHandler(Handler):
     def do_GET(self):
         if not self.allowed_host(): return self.reply({'error': 'Invalid host.'}, 403)
         path = urlparse(self.path).path
+        # Dedicated health probe: never creates a session or dispatches inference.
+        if path == '/_internal_ready': return self.reply({'ready': True})
         session = self.server.judge.session(self.token())
         if not session:
             if path != '/': return self.reply({'error': 'Sign in required.'}, 401)
-            body = b'<!doctype html><html lang="en"><meta charset="utf-8"><title>IncidentCourt judge access</title><h1>IncidentCourt judge access</h1><p>Sessions are temporary. If the service restarted or your session expired, earlier results may no longer be available. A previous investigation may already have used provider credits. It will not restart automatically.</p><form method="post" action="/login"><label>Access code <input type="password" name="code" required autocomplete="off"></label><button>Continue</button></form></html>'
+            if self.server.judge.access_mode == 'public':
+                body = b'<!doctype html><html lang="en"><meta charset="utf-8"><title>IncidentCourt demo</title><h1>IncidentCourt demo</h1><p>Sessions are temporary. If the service restarted or your session expired, earlier results may no longer be available. A previous investigation may already have used provider credits. It will not restart automatically.</p><form method="post" action="/session"><input type="hidden" name="start" value="1"><button>Open demo</button></form></html>'
+            else:
+                body = b'<!doctype html><html lang="en"><meta charset="utf-8"><title>IncidentCourt judge access</title><h1>IncidentCourt judge access</h1><p>Sessions are temporary. If the service restarted or your session expired, earlier results may no longer be available. A previous investigation may already have used provider credits. It will not restart automatically.</p><form method="post" action="/login"><label>Access code <input type="password" name="code" required autocomplete="off"></label><button>Continue</button></form></html>'
             self.send_response(200); self.send_header('Content-Type', 'text/html; charset=utf-8')
             self.send_header('Cache-Control', 'no-store'); self.send_header('Content-Length', str(len(body)))
             self.send_header('Content-Security-Policy', "default-src 'none'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
@@ -283,7 +316,7 @@ class JudgeHandler(Handler):
                 from .config import ROOT
                 html = (ROOT/'incidentcourt/static/index.html').read_text()
                 html = html.replace('</head>', '<link rel="stylesheet" href="/static/judge.css"></head>')
-                html = html.replace('<body>', '<body data-judge-mode="true"><p class="judge-banner">Judge demo: sample telemetry, temporary private session, and bounded Nebius usage.</p>')
+                html = html.replace('<body>', '<body data-judge-mode="true"' + (' data-judge-public="true"' if self.server.judge.access_mode == 'public' else '') + '><p class="judge-banner">Judge demo: sample telemetry and a temporary private session.</p>')
                 body = html.encode()
                 self.send_response(200); self.send_header('Content-Type', 'text/html; charset=utf-8')
                 self.send_header('Content-Length', str(len(body))); self.send_header('Cache-Control', 'no-store')
@@ -312,7 +345,26 @@ class JudgeHandler(Handler):
             raw = self.rfile.read(size)
         except (ValueError, TypeError):
             return self.reply({'error':'Invalid request size.'}, 413)
+        if self.path == '/session':
+            if state.access_mode != 'public': return self.reply({'error':'This action is unavailable.'}, 403)
+            if self.headers.get('Content-Type', '').split(';')[0] != 'application/x-www-form-urlencoded':
+                return self.reply({'error':'Invalid form.'}, 415)
+            try:
+                fields = parse_qs(raw.decode('utf-8'), strict_parsing=True)
+                if fields != {'start': ['1']}: raise ValueError()
+            except (ValueError, UnicodeError):
+                return self.reply({'error':'Invalid form.'}, 400)
+            existing = self.token()
+            try:
+                token = existing if state.session(existing) else state.open_public_session()
+            except Exception:
+                return self.reply({'error':'Demo temporarily unavailable.'}, 503)
+            if not token: return self.reply({'error':'Demo temporarily unavailable.'}, 503)
+            cookie = f'judge={token}; HttpOnly; SameSite=Strict; Path=/' + ('; Secure' if state.secure else '')
+            self.send_response(303); self.send_header('Location', '/'); self.send_header('Set-Cookie', cookie)
+            self.send_header('Cache-Control', 'no-store'); self.send_header('Content-Length', '0'); self.end_headers(); return
         if self.path == '/login':
+            if state.access_mode != 'code': return self.reply({'error':'This action is unavailable.'}, 403)
             if self.headers.get('Content-Type', '').split(';')[0] != 'application/x-www-form-urlencoded':
                 return self.reply({'error':'Invalid form.'}, 415)
             try:
@@ -320,6 +372,7 @@ class JudgeHandler(Handler):
                 if set(fields) != {'code'} or len(fields['code']) != 1: raise ValueError()
                 token = state.authenticate(self.client_address[0], fields['code'][0])
             except (ValueError, UnicodeError): token = None
+            except Exception: return self.reply({'error':'Demo temporarily unavailable.'}, 503)
             if not token: return self.reply({'error':'Access denied or temporarily unavailable.'}, 403)
             cookie = f'judge={token}; HttpOnly; SameSite=Strict; Path=/' + ('; Secure' if state.secure else '')
             self.send_response(303); self.send_header('Location', '/'); self.send_header('Set-Cookie', cookie)
@@ -359,12 +412,13 @@ def main():
     from .config import ROOT
     from .sample import ensure_sample_db
     ensure_sample_db(ROOT / 'data/sample.sqlite3')
-    access_code, provider_token = load_credentials(os.environ)
+    mode = access_mode(os.environ)
+    access_code, provider_token = load_credentials(os.environ, mode)
     maximum, per_session = run_limits(os.environ)
     state = JudgeState(os.environ['JUDGE_ORIGIN'], access_code, os.environ['JUDGE_QUOTA_LEDGER'],
         maximum, per_session, positive('JUDGE_MAX_SESSIONS'),
         positive('JUDGE_SESSION_SECONDS'), positive('JUDGE_LOGIN_ATTEMPTS'), positive('JUDGE_LOGIN_WINDOW_SECONDS'),
-        provider_token=provider_token, provider_receipt_directory=os.environ.get('JUDGE_RECEIPT_DIR'))
+        provider_token=provider_token, provider_receipt_directory=os.environ.get('JUDGE_RECEIPT_DIR'), access_mode=mode)
     server = ThreadingHTTPServer(('127.0.0.1', args.port), JudgeHandler)
     server.judge = state
     print('Judge gateway running on loopback only.', flush=True)

@@ -24,6 +24,14 @@ class InstaCloudPreparationTests(unittest.TestCase):
         value = startup.render(env, TEMPLATE, Path('/tmp/test-private-runtime'))
         self.assertIn('listen [::]:8080 ipv6only=off;', value)
         self.assertIn('proxy_set_header Host judge.example.com;', value)
+        self.assertIn('proxy_pass http://127.0.0.1:8317/_internal_ready;', value)
+        self.assertIn('proxy_request_buffering on;', value)
+        self.assertIn('proxy_buffering on;', value)
+        self.assertIn('proxy_max_temp_file_size 0;', value)
+        self.assertIn('client_header_timeout 10s;', value)
+        self.assertIn('client_body_timeout 10s;', value)
+        self.assertIn('proxy_read_timeout 45s;', value)
+        self.assertIn('limit_conn incidentcourt_connections 3;', value)
         self.assertIn('proxy_set_header Host $http_host;', value)
         self.assertIn('rate=7r/s', value)
         self.assertNotIn('@', value)
@@ -55,9 +63,10 @@ class InstaCloudPreparationTests(unittest.TestCase):
 
     def test_proxy_environment_excludes_credentials_and_other_secrets(self):
         env = {'NEBIUS_API_KEY':'fixture-token','JUDGE_ACCESS_CODE':'fixture-code',
-               'UNRELATED_SECRET':'fixture-private','TMPDIR':'/data','SAMPLE_MODE':'true'}
+               'UNRELATED_SECRET':'fixture-private','TMPDIR':'/data','SAMPLE_MODE':'true','JUDGE_ACCESS_MODE':'public'}
         backend, proxy = startup.child_environments(env)
         self.assertEqual(backend['TMPDIR'], '/tmp')
+        self.assertEqual(backend['JUDGE_ACCESS_MODE'], 'public')
         self.assertNotIn('UNRELATED_SECRET', backend)
         self.assertNotIn('NEBIUS_API_KEY', proxy)
         self.assertNotIn('JUDGE_ACCESS_CODE', proxy)
