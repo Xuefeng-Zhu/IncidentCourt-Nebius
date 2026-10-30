@@ -16,7 +16,9 @@ On October 29, 2026, one HTTPS API-driven investigation completed on the deploye
 
 This was an HTTPS API-driven test, not a hosted browser-flow test. At the time of this test the service used code-protected access; judges did not need a provider API key. It supported one concurrent investigation and temporary sessions. The hosting Free plan may pause the service if credit is exhausted, and automatic idle wake for the actual service had not been tested. Provider token usage does not establish account billing or diagnostic accuracy.
 
-An opt-in passwordless public-entry mode was tested locally; hosted behavior for this mode was not verified by the October 29 test. It allows anyone to initiate provider requests and incur charges. Verify ingress, rate controls and service availability on the actual deployment.
+Later on October 29, a browser-started investigation of sample incident `IC-001` completed on the deployed passwordless service as run `0bbc22744ece`. Three retained provider receipts record completed Token Factory calls served by `nvidia/nemotron-3-super-120b-a12b`, reporting 2,308 input and 1,583 output tokens. The report contained 21 evidence records and 14 queries and passed report lineage validation. Its candidate was `checkoutservice` with limited confidence; this is a lead, not a proven root cause. The browser test also opened an evidence link to its corresponding entry. These checks do not establish diagnostic accuracy or a billing amount.
+
+Public entry allows anyone to initiate provider requests and incur charges. Sessions are temporary and only one investigation can run at a time. The hosting Free plan may pause the service if credit is exhausted; automatic idle wake for the real service had not been verified as of October 29. Per-client abuse controls remain unverified.
 
 ## Historical verification in the original project
 

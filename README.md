@@ -6,7 +6,7 @@ The bundled sample runs offline with deterministic rules and real, sampled [RCAE
 
 [Watch the demo](https://youtu.be/AXyv-4xRrsc) for a walkthrough of the investigation and its evidence. The app footage reviews a saved run.
 
-The [hosted judge service](https://prod-main-judge-805a4e-005j020q19j.compute.instacloud-edge.com/) uses a server-side Nebius API key, so judges do not need their own key. One investigation can run at a time and sessions are temporary. The October 29 hosted test used code-protected access; passwordless entry is available as a deployment mode.
+The [hosted judge service](https://prod-main-judge-805a4e-005j020q19j.compute.instacloud-edge.com/) offers passwordless entry and uses a server-side Nebius API key, so judges do not need their own key. One investigation can run at a time and sessions are temporary. The hosting Free plan may pause the service when credit is exhausted; automatic idle wake had not been verified as of October 29.
 
 ## Run the offline sample
 
@@ -89,7 +89,7 @@ Manually imported compatible JSON snapshots persist in the library, remain visib
 
 New case/history APIs are `/api/cases`, `/api/cases/{id}`, `/api/investigations`, and `/api/investigations/{id}`. POST starts an investigation with `incident_id` and `idempotency_key`; `/api/investigations/{id}/review` saves `note`, `reviewed`, and the current `version`. `/api/investigations/import` accepts a complete report up to 5 MiB. `/api/cases/refresh` and `/api/connections/check` refresh metadata without inference. The CLI and synchronous endpoints remain available for offline execution; hosted browser runs use the guarded workspace endpoint.
 
-The background UI was exercised with offline sample SQL/rules, including navigation and reload during a gated QA run. An October 27 browser-started run exercised live Nebius with sample telemetry. An October 29 HTTPS API-driven run verified the judge service in code-protected mode; that test did not exercise the hosted browser flow. See [verification](docs/LIVE_VERIFICATION.md) for details and limits.
+The background UI was exercised with offline sample SQL/rules, including navigation and reload during a gated QA run. An October 27 browser-started run exercised live Nebius with sample telemetry. On October 29, a browser-started investigation exercised the deployed passwordless judge service with live Nebius inference and passed report lineage validation. See [verification](docs/LIVE_VERIFICATION.md) for details and limits.
 
 ## Investigation behavior
 
